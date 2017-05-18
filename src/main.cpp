@@ -10,10 +10,11 @@ struct Body
     double mass;
     Vector3d point;
 
-    Body(double mass_, Vector3d point_): mass(mass_), point(point_) {};
+    Body(double mass_, Vector3d point_) : mass(mass_), point(point_)
+    {};
 };
 
-std::ostream & operator<<(std::ostream & os, Body & body)
+std::ostream &operator<<(std::ostream &os, Body &body)
 {
     os << "{ mass = " << body.mass
        << ", point = { "
@@ -24,73 +25,57 @@ std::ostream & operator<<(std::ostream & os, Body & body)
     return os;
 }
 
+enum NodeType
+{
+    EMPTY_EXTERNAL, NONEMPTY_EXTERNAL, INTERNAL
+};
+
 class OcNode
 {
 private:
-    double get_x_min(const OcNode & parent, std::size_t index)
+    Vector3d get_child_lower_vertice(std::size_t child_index)
     {
-        if (index == 0 || index == 3 || index == 4 || index == 7) {
-            return parent.x_min;
+        Vector3d result = {0, 0, 0};
+        if (child_index == 0 || child_index == 3 || child_index == 4 || child_index == 7) {
+            result[0] = lower_vertice[0];
         } else {
-            return (parent.x_max + parent.x_min) / 2;
+            result[0] = (upper_vertice[0] + lower_vertice[0]) / 2;
         }
-    }
-
-    double get_x_max(const OcNode & parent, std::size_t index)
-    {
-        if (index == 0 || index == 3 || index == 4 || index == 7) {
-            return (parent.x_max + parent.x_min) / 2;
+        if (child_index == 0 || child_index == 1 || child_index == 4 || child_index == 5) {
+            result[1] = lower_vertice[1];
         } else {
-            return parent.x_max;
+            result[1] = (upper_vertice[1] + lower_vertice[1]) / 2;
         }
-    }
-
-    double get_y_min(const OcNode & parent, std::size_t index)
-    {
-        if (index == 0 || index == 1 || index == 4 || index == 5) {
-            return parent.y_min;
+        if (child_index == 0 || child_index == 1 || child_index == 2 || child_index == 3) {
+            result[2] = lower_vertice[2];
         } else {
-            return (parent.y_max + parent.y_min) / 2;
+            result[2] = (upper_vertice[2] + lower_vertice[2]) / 2;
         }
+        return result;
     }
 
-    double get_y_max(const OcNode & parent, std::size_t index)
+    Vector3d get_child_upper_vertice(std::size_t child_index)
     {
-        if (index == 0 || index == 1 || index == 4 || index == 5) {
-            return (parent.y_max + parent.y_min) / 2;
+        Vector3d result = {0, 0, 0};
+        if (child_index == 0 || child_index == 3 || child_index == 4 || child_index == 7) {
+            result[0] = (upper_vertice[0] + lower_vertice[0]) / 2;
         } else {
-            return parent.y_max;
+            result[0] = upper_vertice[0];
         }
-    }
-
-    double get_z_min(const OcNode & parent, std::size_t index)
-    {
-        if (index == 0 || index == 1 || index == 2 || index == 3) {
-            return parent.z_min;
+        if (child_index == 0 || child_index == 1 || child_index == 4 || child_index == 5) {
+            result[1] = (upper_vertice[1] + lower_vertice[1]) / 2;
         } else {
-            return (parent.z_max + parent.z_min) / 2;
+            result[1] = upper_vertice[1];
         }
-    }
-
-    double get_z_max(const OcNode & parent, std::size_t index)
-    {
-        if (index == 0 || index == 1 || index == 2 || index == 3) {
-            return (parent.z_max + parent.z_min) / 2;
+        if (child_index == 0 || child_index == 1 || child_index == 2 || child_index == 3) {
+            result[2] = (upper_vertice[2] + lower_vertice[2]) / 2;
         } else {
-            return parent.z_max;
+            result[2] = upper_vertice[2];
         }
+        return result;
     }
 
-    Vector3d get_centerpoint()
-    {
-        return {
-                (x_min + x_max) / 2,
-                (y_min + y_max) / 2,
-                (z_min + z_max) / 2
-        };
-    }
-
-    std::size_t get_child_index(const Vector3d & point)
+    std::size_t get_child_index(const Vector3d &point)
     {
         if (point[0] < centerpoint[0]) {
             if (point[1] < centerpoint[1]) {
@@ -123,78 +108,54 @@ private:
         }
     }
 
-    bool is_internal = false;
-    bool is_empty = true;
-    Body center_of_mass = { 0, { 0, 0, 0 } };
-    std::vector<std::shared_ptr<Body>> bodies = {};
+    NodeType type = EMPTY_EXTERNAL;
+    Body center_of_mass = {0, {0, 0, 0}};
 
     friend int main();
 
 public:
-    std::array<std::shared_ptr<OcNode>, 8> children;
-    const double x_min, x_max, y_min, y_max, z_min, z_max;
+    std::array<std::shared_ptr<OcNode>, 8> children{
+            nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr
+    };
+    const Vector3d lower_vertice, upper_vertice;
     const Vector3d centerpoint;
 
     OcNode(
-            const double x_min_,
-            const double x_max_,
-            const double y_min_,
-            const double y_max_,
-            const double z_min_,
-            const double z_max_
-    )
-            : x_min(x_min_)
-            , x_max(x_max_)
-            , y_min(y_min_)
-            , y_max(y_max_)
-            , z_min(z_min_)
-            , z_max(z_max_)
-            , centerpoint(get_centerpoint())
-    {
-        std::cout << "creating new root\n";
+            const Vector3d &lower_vertice_,
+            const Vector3d &upper_vertice_
+    ) : lower_vertice(lower_vertice_), upper_vertice(upper_vertice_), centerpoint((lower_vertice + upper_vertice) / 2)
+    {}
 
-    }
-
-    OcNode(
-            const OcNode & parent_,
-            std::size_t index
-    )
-            : x_min(get_x_min(parent_, index))
-            , x_max(get_x_max(parent_, index))
-            , y_min(get_y_min(parent_, index))
-            , y_max(get_y_max(parent_, index))
-            , z_min(get_z_min(parent_, index))
-            , z_max(get_z_max(parent_, index))
-            , centerpoint(get_centerpoint())
+    void insert_point(const Body &body)
     {
-        std::cout << "creating new child\n";
-    }
-
-    void insert_point(const std::shared_ptr<Body> & body)
-    {
-        if (!is_empty) {
-            is_internal = true;
-            std::size_t curr_body_child_index = get_child_index(bodies[0]->point);
-            children[curr_body_child_index].reset(new OcNode(*this, curr_body_child_index));
-            children[curr_body_child_index]->insert_point(bodies[0]);
-        } else {
-            is_empty = false;
+        if (type == NONEMPTY_EXTERNAL) {
+            type = INTERNAL;
+            auto i = get_child_index(center_of_mass.point);
+            std::size_t curr_body_child_index = get_child_index(center_of_mass.point);
+            children[curr_body_child_index].reset(new OcNode(
+                    get_child_lower_vertice(curr_body_child_index),
+                    get_child_upper_vertice(curr_body_child_index)
+            ));
+            children[curr_body_child_index]->insert_point(center_of_mass);
         }
 
-        bodies.push_back(std::shared_ptr<Body>(body));
         double mass_prev = center_of_mass.mass;
         Vector3d point_prev = center_of_mass.point;
-        double mass_new = mass_prev + body->mass;
-        Vector3d point_new = (point_prev * mass_prev + body->point) / mass_new;
-        center_of_mass = { mass_new, point_new };
+        double mass_new = mass_prev + body.mass;
+        Vector3d point_new = (point_prev * mass_prev + body.point) / mass_new;
+        center_of_mass = {mass_new, point_new};
 
-        if (!is_internal) {
+        if (type == EMPTY_EXTERNAL) {
+            type = NONEMPTY_EXTERNAL;
             return;
         }
 
-        std::size_t child_index = get_child_index(body->point);
+        std::size_t child_index = get_child_index(body.point);
         if (children[child_index] == nullptr) {
-            children[child_index].reset(new OcNode(*this, child_index));
+            children[child_index].reset(new OcNode(
+                    get_child_lower_vertice(child_index),
+                    get_child_upper_vertice(child_index)
+            ));
         }
         children[child_index]->insert_point(body);
     }
@@ -203,7 +164,7 @@ public:
 class OcTree
 {
 private:
-    
+
 
 public:
 
@@ -213,25 +174,30 @@ public:
 
 int main()
 {
-    OcNode node(0, 4, 0, 4, 0, 4);
-    std::shared_ptr<Body> b1(new Body(1, { 0.7, 0.7, 0.7 }));
-    std::shared_ptr<Body> b2(new Body(1, { 0.2, 0.2, 0.2 }));
+    OcNode node({0, 0, 0}, {4, 4, 4});
 
-    node.insert_point(b1);
-    node.insert_point(b2);
+    std::vector<Vector3d> norm_shifts {
+            {0, 0, 0},
+            {1, 0, 0},
+            {1, 1, 0},
+            {0, 1, 0},
+            {0, 0, 1},j
+            {1, 0, 1},
+            {1, 1, 1},
+            {0, 1, 1},
+    };
 
-    for (auto body : node.children[0]->children[0]->children[6]->bodies) {
-        std::cout << *body << "\n";
+    double cross_coef = 2;
+
+    for (Vector3d norm_shift : norm_shifts) {
+        node.insert_point({1, Vector3d({0.7, 0.7, 0.7}) + norm_shift * cross_coef});
     }
 
-/*
-    std::cout << node.get_child_index({ 1, 1, 1 }) << "\n";
-    std::cout << node.get_child_index({ 3, 1, 1 }) << "\n";
-    std::cout << node.get_child_index({ 3, 3, 1 }) << "\n";
-    std::cout << node.get_child_index({ 1, 3, 1 }) << "\n";
-    std::cout << node.get_child_index({ 1, 1, 3 }) << "\n";
-    std::cout << node.get_child_index({ 3, 1, 3 }) << "\n";
-    std::cout << node.get_child_index({ 3, 3, 3 }) << "\n";
-    std::cout << node.get_child_index({ 1, 3, 3 }) << "\n";
-*/
+    for (std::size_t i = 0; i < 8; ++i) {
+        for (std::size_t j = 0; j < 8; ++j) {
+            assert(node.children[i]->get_child_index(
+                    (norm_shifts[j] * cross_coef + Vector3d(1, 1, 1)) / 2 + norm_shifts[i] * cross_coef
+            ) == j);
+        }
+    }
 }
