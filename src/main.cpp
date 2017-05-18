@@ -1,6 +1,8 @@
 #include <iostream>
 #include <array>
 #include <memory>
+#include <queue>
+#include <random>
 #include "Eigen/Eigen"
 
 using namespace Eigen;
@@ -108,10 +110,23 @@ private:
         }
     }
 
+    Vector3d get_force(const Body &body1, const Body &body2)
+    {
+        Vector3d diff_vector = body1.point - body2.point;
+        double dist = diff_vector.norm();
+        double force_value = G * body1.mass * body2.mass / (dist * dist);
+        return diff_vector.normalized() * force_value;
+    }
+
+    static constexpr double G = 6.67408e-11;
+    static constexpr double theta = 0.5;
+
     NodeType type = EMPTY_EXTERNAL;
     Body center_of_mass = {0, {0, 0, 0}};
 
     friend int main();
+    friend void test_shit();
+    friend void print_shit(const std::shared_ptr<OcNode> &);
 
 public:
     std::array<std::shared_ptr<OcNode>, 8> children{
@@ -123,7 +138,10 @@ public:
     OcNode(
             const Vector3d &lower_vertice_,
             const Vector3d &upper_vertice_
-    ) : lower_vertice(lower_vertice_), upper_vertice(upper_vertice_), centerpoint((lower_vertice + upper_vertice) / 2)
+    )
+            : lower_vertice(lower_vertice_)
+            , upper_vertice(upper_vertice_)
+            , centerpoint((lower_vertice_ + upper_vertice_) / 2)
     {}
 
     void insert_point(const Body &body)
@@ -159,6 +177,30 @@ public:
         }
         children[child_index]->insert_point(body);
     }
+
+    Vector3d calculate_force(const Body &body)
+    {
+        switch (type) {
+            case EMPTY_EXTERNAL:
+                return {0, 0, 0};
+            case NONEMPTY_EXTERNAL:
+                return get_force(center_of_mass, body);
+            case INTERNAL:
+                double s = upper_vertice[0] - lower_vertice[0];
+                double d = (center_of_mass.point - body.point).norm();
+                if (s / d < theta) {
+                    return get_force(center_of_mass, body);
+                } else {
+                    Vector3d result;
+                    for (auto child : children) {
+                        if (child != nullptr) {
+                            result += child->calculate_force(body);
+                        }
+                    }
+                    return result;
+                }
+        }
+    }
 };
 
 class OcTree
@@ -171,17 +213,51 @@ public:
 
 };
 
-
-int main()
+void print_shit(const std::shared_ptr<OcNode> &node)
 {
-    OcNode node({0, 0, 0}, {4, 4, 4});
+    std::cout << "\n";
+    int eight_degree = 1;
+    std::queue<std::shared_ptr<OcNode>> q;
+    q.push(node);
+    int j = 0;
+    while (q.size() != 0) {
+        std::shared_ptr<OcNode> curr_node = q.front();
+        q.pop();
+        if (curr_node == nullptr) {
+            std::cout << 0;
+        } else {
+            std::cout << 1;
+            for (auto child : curr_node->children) {
+                q.push(child);
+            }
+        }
+        ++j;
+        if (j == eight_degree || q.size() == 0) {
+            std::cout << "\n";
+            for (int i = 0; i < j; ++i) {
+                std::cout << i % 10;
+            }
+            std::cout << "\n";
+            for (int i = 0; i < j; i += 10) {
+                std::cout << i / 10 << "         ";
+            }
+            eight_degree *= 8;
+            j = 0;
+            std::cout << "\n===================================================\n";
+        }
+    }
+}
 
-    std::vector<Vector3d> norm_shifts {
+void test_shit()
+{
+    std::shared_ptr<OcNode> node(new OcNode({0, 0, 0}, {4, 4, 4}));
+
+    std::vector<Vector3d> norm_shifts{
             {0, 0, 0},
             {1, 0, 0},
             {1, 1, 0},
             {0, 1, 0},
-            {0, 0, 1},j
+            {0, 0, 1},
             {1, 0, 1},
             {1, 1, 1},
             {0, 1, 1},
@@ -190,14 +266,29 @@ int main()
     double cross_coef = 2;
 
     for (Vector3d norm_shift : norm_shifts) {
-        node.insert_point({1, Vector3d({0.7, 0.7, 0.7}) + norm_shift * cross_coef});
+        node->insert_point({1, Vector3d({0.7, 0.7, 0.7}) + norm_shift * cross_coef});
     }
+    node->insert_point({1, {0.2, 0.2, 0.2}});
+
+    std::cout << OcNode::G << "\n";
+
+    IOFormat CommaInitFmt(StreamPrecision, DontAlignCols, ", ", ", ", "", "", " ", ";");
 
     for (std::size_t i = 0; i < 8; ++i) {
         for (std::size_t j = 0; j < 8; ++j) {
-            assert(node.children[i]->get_child_index(
+            assert(node->children[i]->get_child_index(
                     (norm_shifts[j] * cross_coef + Vector3d(1, 1, 1)) / 2 + norm_shifts[i] * cross_coef
             ) == j);
         }
+
+        std::cout << node->get_child_lower_vertice(i).format(CommaInitFmt) << " "
+                  << node->get_child_upper_vertice(i).format(CommaInitFmt) << "\n";
     }
+
+    print_shit(node);
+}
+
+int main()
+{
+    test_shit();
 }
