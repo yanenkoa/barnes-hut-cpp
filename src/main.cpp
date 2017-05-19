@@ -1,11 +1,14 @@
 #include <iostream>
 #include <array>
+#include <limits>
 #include <memory>
 #include <queue>
 #include <random>
 #include "Eigen/Eigen"
 
 using namespace Eigen;
+
+IOFormat PrettyFmt(StreamPrecision, DontAlignCols, ", ", ", ", "", "", "[", "]");
 
 struct Body
 {
@@ -18,11 +21,10 @@ struct Body
 std::ostream &operator<<(std::ostream &os, Body &body)
 {
     os << "{ mass = " << body.mass
-       << ", point = { "
-       << body.location[0] << ", "
-       << body.location[1] << ", "
-       << body.location[2]
-       << " } }";
+       << ", point = " << body.location.format(PrettyFmt)
+       << ", velocity = " << body.velocity.format(PrettyFmt)
+       << ", acceleration = " << body.acceleration.format(PrettyFmt)
+       << " }";
     return os;
 }
 
@@ -114,7 +116,7 @@ private:
         Vector3d diff_vector = body1.location - body2.location;
         double dist = diff_vector.norm();
         double force_value = G * body1.mass * body2.mass / (dist * dist);
-        return diff_vector.normalized() * force_value;
+        return force_value * diff_vector.normalized();
     }
 
     static constexpr double G = 6.67408e-11;
@@ -159,7 +161,7 @@ public:
         double mass_prev = center_of_mass.mass;
         Vector3d point_prev = center_of_mass.location;
         double mass_new = mass_prev + body.mass;
-        Vector3d point_new = (point_prev * mass_prev + body.location) / mass_new;
+        Vector3d point_new = (mass_prev * point_prev + body.location) / mass_new;
         center_of_mass = {mass_new, point_new};
 
         if (type == EMPTY_EXTERNAL) {
@@ -205,21 +207,65 @@ public:
 class OcTree
 {
 private:
-    OcNode root;
     std::vector<Body> &bodies;
     const double delta_t;
     const double max_time;
 
+    Vector3d get_lower_vertice()
+    {
+        Vector3d result;
+        for (auto body : bodies) {
+            result[0] = result[0] < body.location[0] ? result[0] : body.location[0];
+            result[1] = result[1] < body.location[1] ? result[1] : body.location[1];
+            result[2] = result[2] < body.location[2] ? result[2] : body.location[2];
+        }
+        result -= 0.1 * result;
+        return result;
+    }
+
+    Vector3d get_upper_vertice()
+    {
+        Vector3d result;
+        for (auto body : bodies) {
+            result[0] = result[0] > body.location[0] ? result[0] : body.location[0];
+            result[1] = result[1] > body.location[1] ? result[1] : body.location[1];
+            result[2] = result[2] > body.location[2] ? result[2] : body.location[2];
+        }
+        result += 0.1 * result;
+        return result;
+    }
+
 public:
-    OcTree(
-            std::vector<Body> &bodies_,
-            const Vector3d &lower_vertice,
-            const Vector3d &upper_vertice,
-            double delta_t_,
-            double max_time_
-    ) : bodies(bodies_), root(OcNode(lower_vertice, upper_vertice)), delta_t(delta_t_), max_time(max_time_) {}
+    OcTree(std::vector<Body> &bodies_, double delta_t_, double max_time_)
+            : bodies(bodies_), delta_t(delta_t_), max_time(max_time_) {}
 
+    void simulate(std::ostream &os)
+    {
+        os << bodies.size();
+        IOFormat MyFmt(StreamPrecision, DontAlignCols, ",", ", ", "", "", "[", "]");
+        for (double curr_time = 0; curr_time < max_time; curr_time += delta_t) {
+            OcNode root(
+                    get_lower_vertice(),
+                    get_upper_vertice()
+            );
 
+            for (auto &body : bodies) {
+                root.insert_point(body);
+            }
+
+            for (auto &body : bodies) {
+                body.location += delta_t * body.velocity;
+                body.velocity += delta_t * body.acceleration;
+                Vector3d force = root.calculate_force(body);
+                body.acceleration = force / body.mass;
+            }
+
+            for (auto &body : bodies) {
+                os << body << "\n";
+            }
+            os << "it_end\n";
+        }
+    }
 };
 
 void print_shit(const std::shared_ptr<OcNode> &node)
@@ -259,6 +305,8 @@ void print_shit(const std::shared_ptr<OcNode> &node)
 
 void test_shit()
 {
+    std::cout << std::numeric_limits<double>::max() << " " << std::numeric_limits<double>::min() << "\n";
+
     std::shared_ptr<OcNode> node(new OcNode({0, 0, 0}, {4, 4, 4}));
 
     std::vector<Vector3d> norm_shifts{
@@ -275,18 +323,18 @@ void test_shit()
     double cross_coef = 2;
 
     for (Vector3d norm_shift : norm_shifts) {
-        node->insert_point({1, Vector3d({0.7, 0.7, 0.7}) + norm_shift * cross_coef});
+        node->insert_point({1, Vector3d({0.7, 0.7, 0.7}) + cross_coef * norm_shift});
     }
     node->insert_point({1, {0.2, 0.2, 0.2}});
 
     std::cout << OcNode::G << "\n";
 
-    IOFormat CommaInitFmt(StreamPrecision, DontAlignCols, ", ", ", ", "", "", " ", ";");
+    IOFormat CommaInitFmt(StreamPrecision, DontAlignCols, ",", ", ", "", "", "[", "]");
 
     for (std::size_t i = 0; i < 8; ++i) {
         for (std::size_t j = 0; j < 8; ++j) {
             assert(node->children[i]->get_child_index(
-                    (norm_shifts[j] * cross_coef + Vector3d(1, 1, 1)) / 2 + norm_shifts[i] * cross_coef
+                    (cross_coef * norm_shifts[j] + Vector3d(1, 1, 1)) / 2 + cross_coef * norm_shifts[i]
             ) == j);
         }
 
@@ -295,6 +343,25 @@ void test_shit()
     }
 
     print_shit(node);
+}
+
+void test_shit_2()
+{
+    std::vector<Body> bodies = { {1}, {1}, {2}, {3} };
+
+    for (auto body : bodies) {
+        std::cout << body << "\n";
+    }
+
+    for (auto &body : bodies) {
+        body.mass += 1;
+    }
+
+    for (auto body : bodies) {
+        std::cout << body << "\n";
+    }
+
+
 }
 
 int main()
