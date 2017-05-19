@@ -10,19 +10,18 @@ using namespace Eigen;
 struct Body
 {
     double mass;
-    Vector3d point;
-
-    Body(double mass_, Vector3d point_) : mass(mass_), point(point_)
-    {};
+    Vector3d location;
+    Vector3d velocity;
+    Vector3d acceleration;
 };
 
 std::ostream &operator<<(std::ostream &os, Body &body)
 {
     os << "{ mass = " << body.mass
        << ", point = { "
-       << body.point[0] << ", "
-       << body.point[1] << ", "
-       << body.point[2]
+       << body.location[0] << ", "
+       << body.location[1] << ", "
+       << body.location[2]
        << " } }";
     return os;
 }
@@ -112,7 +111,7 @@ private:
 
     Vector3d get_force(const Body &body1, const Body &body2)
     {
-        Vector3d diff_vector = body1.point - body2.point;
+        Vector3d diff_vector = body1.location - body2.location;
         double dist = diff_vector.norm();
         double force_value = G * body1.mass * body2.mass / (dist * dist);
         return diff_vector.normalized() * force_value;
@@ -148,8 +147,8 @@ public:
     {
         if (type == NONEMPTY_EXTERNAL) {
             type = INTERNAL;
-            auto i = get_child_index(center_of_mass.point);
-            std::size_t curr_body_child_index = get_child_index(center_of_mass.point);
+            auto i = get_child_index(center_of_mass.location);
+            std::size_t curr_body_child_index = get_child_index(center_of_mass.location);
             children[curr_body_child_index].reset(new OcNode(
                     get_child_lower_vertice(curr_body_child_index),
                     get_child_upper_vertice(curr_body_child_index)
@@ -158,9 +157,9 @@ public:
         }
 
         double mass_prev = center_of_mass.mass;
-        Vector3d point_prev = center_of_mass.point;
+        Vector3d point_prev = center_of_mass.location;
         double mass_new = mass_prev + body.mass;
-        Vector3d point_new = (point_prev * mass_prev + body.point) / mass_new;
+        Vector3d point_new = (point_prev * mass_prev + body.location) / mass_new;
         center_of_mass = {mass_new, point_new};
 
         if (type == EMPTY_EXTERNAL) {
@@ -168,7 +167,7 @@ public:
             return;
         }
 
-        std::size_t child_index = get_child_index(body.point);
+        std::size_t child_index = get_child_index(body.location);
         if (children[child_index] == nullptr) {
             children[child_index].reset(new OcNode(
                     get_child_lower_vertice(child_index),
@@ -187,7 +186,7 @@ public:
                 return get_force(center_of_mass, body);
             case INTERNAL:
                 double s = upper_vertice[0] - lower_vertice[0];
-                double d = (center_of_mass.point - body.point).norm();
+                double d = (center_of_mass.location - body.location).norm();
                 if (s / d < theta) {
                     return get_force(center_of_mass, body);
                 } else {
@@ -206,9 +205,19 @@ public:
 class OcTree
 {
 private:
-
+    OcNode root;
+    std::vector<Body> &bodies;
+    const double delta_t;
+    const double max_time;
 
 public:
+    OcTree(
+            std::vector<Body> &bodies_,
+            const Vector3d &lower_vertice,
+            const Vector3d &upper_vertice,
+            double delta_t_,
+            double max_time_
+    ) : bodies(bodies_), root(OcNode(lower_vertice, upper_vertice)), delta_t(delta_t_), max_time(max_time_) {}
 
 
 };
