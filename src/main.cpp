@@ -4,6 +4,7 @@
 #include <memory>
 #include <queue>
 #include <random>
+#include <SFML/Graphics.hpp>
 #include "Eigen/Eigen"
 
 using namespace Eigen;
@@ -126,7 +127,9 @@ private:
     Body center_of_mass = {0, {0, 0, 0}};
 
     friend int main();
+
     friend void test_shit();
+
     friend void print_shit(const std::shared_ptr<OcNode> &);
 
 public:
@@ -140,9 +143,8 @@ public:
             const Vector3d &lower_vertice_,
             const Vector3d &upper_vertice_
     )
-            : lower_vertice(lower_vertice_)
-            , upper_vertice(upper_vertice_)
-            , centerpoint((lower_vertice_ + upper_vertice_) / 2)
+            : lower_vertice(lower_vertice_), upper_vertice(upper_vertice_),
+              centerpoint((lower_vertice_ + upper_vertice_) / 2)
     {}
 
     void insert_point(const Body &body)
@@ -237,7 +239,8 @@ private:
 
 public:
     OcTree(std::vector<Body> &bodies_, double delta_t_, double max_time_)
-            : bodies(bodies_), delta_t(delta_t_), max_time(max_time_) {}
+            : bodies(bodies_), delta_t(delta_t_), max_time(max_time_)
+    {}
 
     void simulate(std::ostream &os)
     {
@@ -347,7 +350,10 @@ void test_shit()
 
 void test_shit_2()
 {
-    std::vector<Body> bodies = { {1}, {1}, {2}, {3} };
+    std::vector<Body> bodies = {{1},
+                                {1},
+                                {2},
+                                {3}};
 
     for (auto body : bodies) {
         std::cout << body << "\n";
@@ -360,11 +366,29 @@ void test_shit_2()
     for (auto body : bodies) {
         std::cout << body << "\n";
     }
+}
 
+void test_shit_sfml()
+{
+    sf::RenderWindow window(sf::VideoMode(200, 200), "SFML works!");
+    sf::CircleShape shape(100.f);
+    shape.setFillColor(sf::Color::Green);
 
+    while (window.isOpen()) {
+        sf::Event event;
+        while (window.pollEvent(event)) {
+            if (event.type == sf::Event::Closed) {
+                window.close();
+            }
+        }
+
+        window.clear();
+        window.draw(shape);
+        window.display();
+    }
 }
 
 int main()
 {
-    test_shit();
+    test_shit_sfml();
 }
