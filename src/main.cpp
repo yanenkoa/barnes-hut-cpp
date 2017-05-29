@@ -122,7 +122,6 @@ private:
         Vector3d diff_vector = center_of_mass.location - body.location;
         double dist = diff_vector.norm();
         if (type == NONEMPTY_EXTERNAL && center_of_mass.id == body.id) {
-            std::cout << "same body\n";
             return {0, 0, 0};
         }
         double force_value = G * center_of_mass.mass * body.mass / (dist * dist);
@@ -201,7 +200,6 @@ public:
                 return {0, 0, 0};
             }
             case NONEMPTY_EXTERNAL: {
-                std::cout << "nonempty external\n";
                 return get_force(body);
             }
             case INTERNAL: {
@@ -265,7 +263,7 @@ public:
             : bodies(bodies_), delta_t(delta_t_), max_time(max_time_)
     {}
 
-    void simulate(void (*consume)(const std::vector<Body>&))
+    void simulate(std::function<void(const std::vector<Body>&)> consume)
     {
         IOFormat MyFmt(StreamPrecision, DontAlignCols, ",", ", ", "", "", "[", "]");
         for (double curr_time = 0; curr_time < max_time; curr_time += delta_t) {
@@ -435,7 +433,91 @@ void test_shit_4()
                 });
 }
 
+void test_shit_5()
+{
+    const double moon_x_coord = 3.844e7;
+    const double moon_mass = 7.34767309e22;
+    const double earth_mass = 5.9720e24;
+    std::vector<Body> bodies = {
+            {0, earth_mass, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}},
+            {1, moon_mass, {moon_x_coord, 0, 0}, {0, 1022000, 0}, {0, 0, 0}},
+            {2, moon_mass, {moon_x_coord / 2, 0, 0}, {0, -1022000, 0}, {0, 0, 0}},
+            {3, moon_mass, {-moon_x_coord * 3 / 4, 0, 0}, {0, -1000000, 0}, {0, 0, 0}},
+            {4, moon_mass, {-moon_x_coord / 2, moon_x_coord / 2, 0}, {0, 1000000, 0}, {0, 0, 0}},
+            {5, moon_mass, {-moon_x_coord / 2, -moon_x_coord / 2, 0}, {0, 700000, 0}, {0, 0, 0}},
+            {6, moon_mass, {moon_x_coord / 2, -moon_x_coord / 2, 0}, {0, -700000, 0}, {0, 0, 0}},
+    };
 
+    const double delta_t = 1.0 / 60;
+    const double max_time = 1000;
+    std::vector<std::vector<Body>> iterations;
+    BarnesHut bh(bodies, delta_t, max_time);
+    bh.simulate([&iterations](std::vector<Body> const &bodies) -> void
+                {
+                    iterations.push_back(std::vector<Body>());
+                    for (Body body : bodies) {
+                        iterations.back().push_back(Body(body));
+                    }
+                });
+
+//    for (auto iteration : iterations) {
+//        for (auto body : iteration) {
+//            std::cout << body << "\n";
+//        }
+//        std::cout << "iter_end\n";
+//    }
+
+    using std::chrono::system_clock;
+    using std::chrono::time_point;
+    using std::chrono::milliseconds;
+    using std::chrono::nanoseconds;
+    using std::chrono::duration_cast;
+    using std::chrono::duration;
+
+    for (auto &iteration : iterations) {
+        for (auto &body : iteration) {
+            body.location *= 400 / moon_x_coord;
+            body.location -= Vector3d(500, 500, 0);
+        }
+    }
+
+    std::vector<sf::CircleShape> shapes;
+    for (auto body : iterations[0]) {
+        sf::CircleShape shape(3 * std::log(body.mass / moon_mass + 10));
+        shape.setFillColor(sf::Color::Green);
+        shape.setOrigin(body.location[0], body.location[1]);
+        shapes.push_back(shape);
+    }
+
+    sf::RenderWindow window(sf::VideoMode(1000, 1000), "Simulation");
+    time_point<system_clock> prev_time = system_clock::now();
+    int nanoseconds_in_frame = 16666666;
+    int cur_i = 0;
+    while (window.isOpen()) {
+        sf::Event event;
+        while (window.pollEvent(event)) {
+            if (event.type == sf::Event::Closed) {
+                window.close();
+            }
+        }
+
+        window.clear();
+
+        auto curr_time = system_clock::now();
+        if (duration_cast<nanoseconds>(curr_time - prev_time).count() >= nanoseconds_in_frame / 50) {
+            prev_time = curr_time;
+            for (int i = 0; i < shapes.size(); ++i) {
+                shapes[i].setOrigin(iterations[cur_i][i].location[0], iterations[cur_i][i].location[1]);
+            }
+            ++cur_i;
+        }
+
+        for (auto shape : shapes) {
+            window.draw(shape);
+        }
+        window.display();
+    }
+}
 
 void test_shit_sfml()
 {
@@ -477,5 +559,6 @@ void test_shit_sfml()
 
 int main()
 {
-    test_shit_4();
+    test_shit_5();
+//    test_shit_sfml();
 }
