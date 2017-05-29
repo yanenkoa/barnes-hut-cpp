@@ -6,6 +6,9 @@
 #include <random>
 #include <SFML/Graphics.hpp>
 #include "Eigen/Eigen"
+#include <chrono>
+#include <thread>
+#include <ratio>
 
 using namespace Eigen;
 
@@ -13,15 +16,17 @@ IOFormat PrettyFmt(StreamPrecision, DontAlignCols, ", ", ", ", "", "", "[", "]")
 
 struct Body
 {
+    int id;
     double mass;
     Vector3d location;
     Vector3d velocity;
     Vector3d acceleration;
 };
 
-std::ostream &operator<<(std::ostream &os, Body &body)
+std::ostream &operator<<(std::ostream &os, const Body &body)
 {
-    os << "{ mass = " << body.mass
+    os << "{ id = " << body.id
+       << ", mass = " << body.mass
        << ", point = " << body.location.format(PrettyFmt)
        << ", velocity = " << body.velocity.format(PrettyFmt)
        << ", acceleration = " << body.acceleration.format(PrettyFmt)
@@ -112,19 +117,25 @@ private:
         }
     }
 
-    Vector3d get_force(const Body &body1, const Body &body2)
+    Vector3d get_force(const Body &body)
     {
-        Vector3d diff_vector = body1.location - body2.location;
+        Vector3d diff_vector = center_of_mass.location - body.location;
         double dist = diff_vector.norm();
-        double force_value = G * body1.mass * body2.mass / (dist * dist);
-        return force_value * diff_vector.normalized();
+        if (type == NONEMPTY_EXTERNAL && center_of_mass.id == body.id) {
+            std::cout << "same body\n";
+            return {0, 0, 0};
+        }
+        double force_value = G * center_of_mass.mass * body.mass / (dist * dist);
+        Vector3d result = force_value * diff_vector.normalized();
+        return result;
     }
 
-    static constexpr double G = 6.67408e-11;
-    static constexpr double theta = 0.5;
+    static constexpr double eps = std::numeric_limits<double>::epsilon();
+    static constexpr double G = 6.67408e-11 * 100000;
+    static constexpr double theta = 0.0;
 
     NodeType type = EMPTY_EXTERNAL;
-    Body center_of_mass = {0, {0, 0, 0}};
+    Body center_of_mass;
 
     friend int main();
 
@@ -143,15 +154,17 @@ public:
             const Vector3d &lower_vertice_,
             const Vector3d &upper_vertice_
     )
-            : lower_vertice(lower_vertice_), upper_vertice(upper_vertice_),
-              centerpoint((lower_vertice_ + upper_vertice_) / 2)
-    {}
+            : lower_vertice(lower_vertice_), upper_vertice(upper_vertice_)
+            , centerpoint((lower_vertice_ + upper_vertice_) / 2)
+            , center_of_mass({-1, 0, centerpoint})
+    {
+    }
 
     void insert_point(const Body &body)
     {
         if (type == NONEMPTY_EXTERNAL) {
             type = INTERNAL;
-            auto i = get_child_index(center_of_mass.location);
+            std::size_t i = get_child_index(center_of_mass.location);
             std::size_t curr_body_child_index = get_child_index(center_of_mass.location);
             children[curr_body_child_index].reset(new OcNode(
                     get_child_lower_vertice(curr_body_child_index),
@@ -163,8 +176,8 @@ public:
         double mass_prev = center_of_mass.mass;
         Vector3d point_prev = center_of_mass.location;
         double mass_new = mass_prev + body.mass;
-        Vector3d point_new = (mass_prev * point_prev + body.location) / mass_new;
-        center_of_mass = {mass_new, point_new};
+        Vector3d point_new = (mass_prev * point_prev + body.mass * body.location) / mass_new;
+        center_of_mass = {body.id, mass_new, point_new};
 
         if (type == EMPTY_EXTERNAL) {
             type = NONEMPTY_EXTERNAL;
@@ -184,15 +197,18 @@ public:
     Vector3d calculate_force(const Body &body)
     {
         switch (type) {
-            case EMPTY_EXTERNAL:
+            case EMPTY_EXTERNAL: {
                 return {0, 0, 0};
-            case NONEMPTY_EXTERNAL:
-                return get_force(center_of_mass, body);
-            case INTERNAL:
+            }
+            case NONEMPTY_EXTERNAL: {
+                std::cout << "nonempty external\n";
+                return get_force(body);
+            }
+            case INTERNAL: {
                 double s = upper_vertice[0] - lower_vertice[0];
                 double d = (center_of_mass.location - body.location).norm();
                 if (s / d < theta) {
-                    return get_force(center_of_mass, body);
+                    return get_force(body);
                 } else {
                     Vector3d result;
                     for (auto child : children) {
@@ -202,11 +218,15 @@ public:
                     }
                     return result;
                 }
+            }
+            default: {
+                exit(1488);
+            }
         }
     }
 };
 
-class OcTree
+class BarnesHut
 {
 private:
     std::vector<Body> &bodies;
@@ -221,7 +241,6 @@ private:
             result[1] = result[1] < body.location[1] ? result[1] : body.location[1];
             result[2] = result[2] < body.location[2] ? result[2] : body.location[2];
         }
-        result -= 0.1 * result;
         return result;
     }
 
@@ -233,24 +252,30 @@ private:
             result[1] = result[1] > body.location[1] ? result[1] : body.location[1];
             result[2] = result[2] > body.location[2] ? result[2] : body.location[2];
         }
-        result += 0.1 * result;
         return result;
     }
 
+    void simulate_one_step()
+    {
+
+    }
+
 public:
-    OcTree(std::vector<Body> &bodies_, double delta_t_, double max_time_)
+    BarnesHut(std::vector<Body> &bodies_, double delta_t_, double max_time_)
             : bodies(bodies_), delta_t(delta_t_), max_time(max_time_)
     {}
 
-    void simulate(std::ostream &os)
+    void simulate(void (*consume)(const std::vector<Body>&))
     {
-        os << bodies.size();
         IOFormat MyFmt(StreamPrecision, DontAlignCols, ",", ", ", "", "", "[", "]");
         for (double curr_time = 0; curr_time < max_time; curr_time += delta_t) {
-            OcNode root(
-                    get_lower_vertice(),
-                    get_upper_vertice()
-            );
+            auto lower = get_lower_vertice();
+            auto upper = get_upper_vertice();
+            auto diff = upper - lower;
+            auto actual_lower = lower - 0.1 * diff;
+            auto actual_upper = upper + 0.1 * diff;
+
+            OcNode root(actual_lower, actual_upper);
 
             for (auto &body : bodies) {
                 root.insert_point(body);
@@ -263,10 +288,7 @@ public:
                 body.acceleration = force / body.mass;
             }
 
-            for (auto &body : bodies) {
-                os << body << "\n";
-            }
-            os << "it_end\n";
+            consume(bodies);
         }
     }
 };
@@ -284,7 +306,20 @@ void print_shit(const std::shared_ptr<OcNode> &node)
         if (curr_node == nullptr) {
             std::cout << 0;
         } else {
-            std::cout << 1;
+            switch (curr_node->type) {
+                case EMPTY_EXTERNAL: {
+                    std::cout << "E";
+                    break;
+                }
+                case NONEMPTY_EXTERNAL: {
+                    std::cout << "N";
+                    break;
+                }
+                case INTERNAL: {
+                    std::cout << "I";
+                    break;
+                }
+            }
             for (auto child : curr_node->children) {
                 q.push(child);
             }
@@ -325,10 +360,10 @@ void test_shit()
 
     double cross_coef = 2;
 
-    for (Vector3d norm_shift : norm_shifts) {
-        node->insert_point({1, Vector3d({0.7, 0.7, 0.7}) + cross_coef * norm_shift});
+    for (int i = 0; i < norm_shifts.size(); ++i) {
+        node->insert_point({i, 1, Vector3d({0.7, 0.7, 0.7}) + cross_coef * norm_shifts[i]});
     }
-    node->insert_point({1, {0.2, 0.2, 0.2}});
+    node->insert_point({8, 1, {0.2, 0.2, 0.2}});
 
     std::cout << OcNode::G << "\n";
 
@@ -368,18 +403,70 @@ void test_shit_2()
     }
 }
 
+void test_shit_3()
+{
+    std::vector<Body> bodies = {
+            {0, 5.972e24, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}},
+            {1, 7.34767309e22, {3.844e8, 0, 0}, {0, 0, 0}, {0, 0, 0}}
+    };
+
+    std::shared_ptr<OcNode> root(new OcNode({-3.844e+07, 0, -6.95251e-311}, {4.2284e+08, 0, 7.64776e-310}));
+
+    for (auto body : bodies) {
+        root->insert_point(body);
+    }
+
+    print_shit(root);
+}
+
+void test_shit_4()
+{
+    std::vector<Body> bodies = {
+            {0, 5.97200000e24, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}},
+            {1, 7.34767309e22, {3.844e6, 0, 0}, {0, 0, 0}, {0, 0, 0}}
+//            {1, 7.34767309e22, {3.844e8, 0, 0}, {0, 0, 0}, {0, 0, 0}}
+    };
+
+    BarnesHut bh(bodies, 1.0 / 60, 3);
+    bh.simulate([](std::vector<Body> const &bodies) -> void
+                {
+                    for (Body body : bodies) std::cout << body << "\n";
+                    std::cout << "iter_end\n";
+                });
+}
+
+
+
 void test_shit_sfml()
 {
-    sf::RenderWindow window(sf::VideoMode(200, 200), "SFML works!");
-    sf::CircleShape shape(100.f);
+    using std::chrono::system_clock;
+    using std::chrono::time_point;
+    using std::chrono::milliseconds;
+    using std::chrono::nanoseconds;
+    using std::chrono::duration_cast;
+    using std::chrono::duration;
+
+    sf::RenderWindow window(sf::VideoMode(1000, 1000), "SFML works!");
+    float cur_x = 0, cur_y = 0;
+    sf::CircleShape shape(5);
+    shape.setOrigin(cur_x, cur_y);
     shape.setFillColor(sf::Color::Green);
 
+    time_point<system_clock> prev_time = system_clock::now();
     while (window.isOpen()) {
         sf::Event event;
         while (window.pollEvent(event)) {
             if (event.type == sf::Event::Closed) {
                 window.close();
             }
+        }
+
+        auto curr_time = system_clock::now();
+        if (duration_cast<nanoseconds>(curr_time - prev_time).count() >= 16666666) {
+            prev_time = curr_time;
+            cur_x -= 1;
+            cur_y -= 1;
+            shape.setOrigin(cur_x, cur_y);
         }
 
         window.clear();
@@ -390,5 +477,5 @@ void test_shit_sfml()
 
 int main()
 {
-    test_shit_sfml();
+    test_shit_4();
 }
