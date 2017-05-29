@@ -39,6 +39,8 @@ enum NodeType
     EMPTY_EXTERNAL, NONEMPTY_EXTERNAL, INTERNAL
 };
 
+double theta = 0.0;
+
 class OcNode
 {
 private:
@@ -131,7 +133,6 @@ private:
 
     static constexpr double eps = std::numeric_limits<double>::epsilon();
     static constexpr double G = 6.67408e-11 * 5e9;
-    static constexpr double theta = 0.0;
 
     NodeType type = EMPTY_EXTERNAL;
     Body center_of_mass;
@@ -456,7 +457,6 @@ std::vector<Body> generate_bodies(std::size_t n_bodies)
         bodies[i].mass = mass_distr(generator);
         bodies[i].location = location_abs_distr(generator) * Vector3d::Random(3, 1);
         bodies[i].velocity = velocity_abs_distr(generator) * Vector3d::Random(3, 1);
-        std::cout << bodies[i] << "\n";
     }
 
     return bodies;
@@ -582,41 +582,53 @@ void test_shit_6()
     using std::chrono::duration_cast;
     using std::chrono::duration;
 
-    int n_bodies = 1000;
-    std::vector<Body> bodies = generate_bodies(n_bodies);
-
-    const double earth_mass = 5.9720e24;
-
-    Body central_body = {(int)bodies.size(), earth_mass * 1e8, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}};
-    bodies.push_back(central_body);
-
-    double max_coord = std::accumulate(
-            bodies.begin(),
-            bodies.end(),
-            0.0,
-            [&bodies](double acc, const Body &body) -> double
-            {
-                return std::max({acc, body.location[0], body.location[1], body.location[2]});
-            }
-    );
+    std::size_t n_bodies_full = 1000;
+    std::vector<Body> bodies_full = generate_bodies(n_bodies_full);
 
     const double delta_t = 1.0 / 30;
-    const double max_time = 10;
-    BarnesHut bh(bodies, delta_t, max_time);
+    const double max_time = 3;
 
-    std::ofstream outp("data/simulation.txt", std::ofstream::out);
-    outp << delta_t << "\n" << max_time << "\n" << n_bodies << "\n";
+    std::array<std::size_t, 10> body_counts {100, 200, 300, 400, 500, 600, 700, 800, 900, 1000};
 
-    time_point<system_clock> before = system_clock::now();
-    bh.simulate([&outp](std::vector<Body> const &bodies) -> void
-                {
-                    for (Body body : bodies) {
-                        outp << body << "\n";
-                    }
-                });
-    time_point<system_clock> after = system_clock::now();
-    double seconds = duration_cast<milliseconds>(after - before).count() / 1000;
-    std::cout << seconds << " seconds\n";
+    std::ofstream measurements("/home/alex/CLionProjects/BarnesHut/data/measurements.csv");
+
+    for (std::size_t n_bodies : body_counts) {
+
+        std::vector<Body> bodies(n_bodies);
+        for (std::size_t i = 0; i < n_bodies; ++i) {
+            bodies[i] = bodies_full[i];
+        }
+
+        measurements << n_bodies;
+
+        for (double theta_local : {0.0, 0.5}) {
+            theta = theta_local;
+
+            std::stringstream name_ss;
+            name_ss << "/home/alex/CLionProjects/BarnesHut/data/outp_" << n_bodies << "_" << theta << ".txt";
+
+            std::ofstream outp(name_ss.str(), std::ofstream::out);
+            outp << delta_t << "\n" << max_time << "\n" << n_bodies << "\n";
+
+            BarnesHut bh(bodies, delta_t, max_time);
+            time_point <system_clock> before = system_clock::now();
+            bh.simulate([&outp](const std::vector<Body> &iteration) -> void
+                        {
+                            for (Body body : iteration) {
+                                outp << body << "\n";
+                            }
+                        });
+            time_point <system_clock> after = system_clock::now();
+            outp.close();
+
+            double seconds = ((double)duration_cast<milliseconds>(after - before).count()) / 1000;
+            measurements << "," << seconds;
+        }
+
+        measurements << "\n";
+    }
+
+    measurements.close();
 }
 
 void test_shit_sfml()
@@ -659,7 +671,7 @@ void test_shit_sfml()
 
 int main()
 {
-    test_shit_5();
+    test_shit_6();
 //    test_shit_sfml();
 
 //    Vector3d x = Vector3d::Random(3, 1);
