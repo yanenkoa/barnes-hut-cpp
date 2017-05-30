@@ -9,6 +9,7 @@
 #include <chrono>
 #include <thread>
 #include <fstream>
+#include <cmath>
 
 using namespace Eigen;
 
@@ -39,7 +40,7 @@ enum NodeType
     EMPTY_EXTERNAL, NONEMPTY_EXTERNAL, INTERNAL
 };
 
-double theta = 0.0;
+double theta = 0.5;
 
 class OcNode
 {
@@ -132,7 +133,7 @@ private:
     }
 
     static constexpr double eps = std::numeric_limits<double>::epsilon();
-    static constexpr double G = 6.67408e-11 * 5e9;
+    static constexpr double G = 6.67408e-11;
 
     NodeType type = EMPTY_EXTERNAL;
     Body center_of_mass;
@@ -209,7 +210,7 @@ public:
                 if (s / d < theta) {
                     return get_force(body);
                 } else {
-                    Vector3d result;
+                    Vector3d result(0, 0, 0);
                     for (auto child : children) {
                         if (child != nullptr) {
                             result += child->calculate_force(body);
@@ -269,7 +270,14 @@ public:
     void simulate(std::function<void(const std::vector<Body>&)> consume)
     {
         IOFormat MyFmt(StreamPrecision, DontAlignCols, ",", ", ", "", "", "[", "]");
+        const double print_interval = 0.05;
+        double threshold = print_interval * max_time;
         for (double curr_time = 0; curr_time < max_time; curr_time += delta_t) {
+            if (curr_time > threshold) {
+                std::cout << curr_time / max_time << "\n";
+                threshold += print_interval * max_time;
+            }
+//            std::cout << curr_time / max_time << "\n";
             auto lower = get_lower_vertice();
             auto upper = get_upper_vertice();
             auto diff = upper - lower;
@@ -283,10 +291,10 @@ public:
             }
 
             for (auto &body : bodies) {
-                body.location += delta_t * body.velocity;
-                body.velocity += delta_t * body.acceleration;
                 Vector3d force = root.calculate_force(body);
                 body.acceleration = force / body.mass;
+                body.velocity += delta_t * body.acceleration;
+                body.location += delta_t * body.velocity;
             }
 
             consume(bodies);
@@ -436,12 +444,11 @@ void test_shit_4()
                 });
 }
 
-std::vector<Body> generate_bodies(std::size_t n_bodies)
+std::vector<Body> generate_bodies(std::size_t n_bodies, bool two_d = true)
 {
-    const double mass_lower = 1e30, mass_upper = 1e31;
-    const double moon_coord = 3.844e7;
-    const double location_abs_lower = moon_coord * 1000, location_abs_upper = moon_coord * 2000;
-    const double velocity_abs_lower = 1e9, velocity_abs_upper = 1e11;
+    const double mass_lower = 1e22, mass_upper = 1e30;
+    const double location_abs_lower = 1e9, location_abs_upper = 1e11;
+    const double velocity_abs_lower = 1e3, velocity_abs_upper = 1e4;
 
     std::uniform_real_distribution<double> mass_distr(mass_lower, mass_upper);
     std::uniform_real_distribution<double> location_abs_distr(location_abs_lower, location_abs_upper);
@@ -457,12 +464,17 @@ std::vector<Body> generate_bodies(std::size_t n_bodies)
         bodies[i].mass = mass_distr(generator);
         bodies[i].location = location_abs_distr(generator) * Vector3d::Random(3, 1);
         bodies[i].velocity = velocity_abs_distr(generator) * Vector3d::Random(3, 1);
+        if (two_d) {
+            bodies[i].location[2] = 0;
+            bodies[i].velocity[2] = 0;
+        }
     }
 
     return bodies;
 }
 
-void test_shit_5()
+void animate(const std::vector<Body> &bodies, double const max_coord, double const delta_t,
+             std::vector<std::vector<Body>> &iterations)
 {
     using std::chrono::system_clock;
     using std::chrono::time_point;
@@ -471,79 +483,33 @@ void test_shit_5()
     using std::chrono::duration_cast;
     using std::chrono::duration;
 
-    std::vector<Body> bodies = generate_bodies(1000);
-
-//    const double moon_x_coord = 3.844e7;
-//    const double moon_mass = 7.34767309e22;
-    const double earth_mass = 5.9720e24;
-//    std::vector<Body> bodies = {
-//            {0, earth_mass, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}},
-//            {1, moon_mass, {moon_x_coord, 0, 0}, {0, 1022000, 0}, {0, 0, 0}},
-//            {2, moon_mass, {moon_x_coord / 2, 0, 0}, {0, -1022000, 0}, {0, 0, 0}},
-//            {3, moon_mass, {-moon_x_coord * 3 / 4, 0, 0}, {0, -1000000, 0}, {0, 0, 0}},
-//            {4, moon_mass, {-moon_x_coord / 2, moon_x_coord / 2, 0}, {0, 1000000, 0}, {0, 0, 0}},
-//            {5, moon_mass, {-moon_x_coord / 2, -moon_x_coord / 2, 0}, {0, 700000, 0}, {0, 0, 0}},
-//            {6, moon_mass, {moon_x_coord / 2, -moon_x_coord / 2, 0}, {0, -700000, 0}, {0, 0, 0}},
-//    };
-
-    Body central_body = {(int)bodies.size(), earth_mass * 1e8, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}};
-    bodies.push_back(central_body);
-
-    double max_coord = std::accumulate(
-            bodies.begin(),
-            bodies.end(),
-            0.0,
-            [&bodies](double acc, const Body &body) -> double
-            {
-                return std::max({acc, body.location[0], body.location[1], body.location[2]});
-            }
-    );
-
-    const double delta_t = 1.0 / 30;
-    const double max_time = 10;
-    std::vector<std::vector<Body>> iterations;
-    BarnesHut bh(bodies, delta_t, max_time);
-    time_point<system_clock> before = system_clock::now();
-    bh.simulate([&iterations](std::vector<Body> const &bodies) -> void
-                {
-                    iterations.push_back(std::vector<Body>());
-                    for (Body body : bodies) {
-                        iterations.back().push_back(Body(body));
-                    }
-                });
-    time_point<system_clock> after = system_clock::now();
-    double seconds = duration_cast<milliseconds>(after - before).count() / 1000;
-    std::cout << seconds << " seconds\n";
-
-    double min_mass = std::accumulate(
-            bodies.begin(),
-            bodies.end(),
-            std::numeric_limits<double>::infinity(),
-            [&bodies](double acc, const Body & body) -> double
-            {
-                return std::min(acc, body.mass);
-            }
-    );
-
+    unsigned int width = 1000;
     for (auto &iteration : iterations) {
         for (auto &body : iteration) {
-            body.location *= 500 / max_coord * 0.5;
-            body.location -= Vector3d(500, 500, 0);
+            body.location *= width / 2 / max_coord * 0.7;
+            body.location -= Vector3d(width / 2, width / 2, 0);
         }
     }
 
+    std::array<sf::Color, 7> colors {
+            sf::Color::Red, sf::Color::Green, sf::Color::Blue,
+            sf::Color::Cyan, sf::Color::Magenta, sf::Color::Yellow,
+            sf::Color::White
+    };
     std::vector<sf::CircleShape> shapes;
-    for (auto body : iterations[0]) {
-        sf::CircleShape shape(3 * std::log(body.mass / min_mass + 10));
-        shape.setFillColor(sf::Color::Green);
+    for (int i = 0; i < bodies.size(); ++i) {
+        Body &body = iterations[0][i];
+        sf::CircleShape shape(5);
+        shape.setFillColor(colors[i % 7]);
         shape.setOrigin(body.location[0], body.location[1]);
         shapes.push_back(shape);
     }
 
-    sf::RenderWindow window(sf::VideoMode(1000, 1000), "Simulation");
+    sf::RenderWindow window(sf::VideoMode(width, width), "Simulation");
     time_point<system_clock> prev_time = system_clock::now();
-    int nanoseconds_in_frame = 1e9 * delta_t;
+    long nanoseconds_in_frame = (long)(1e9 * delta_t);
     int cur_i = 0;
+    long update_amount = nanoseconds_in_frame / 5000000;
     while (window.isOpen()) {
         sf::Event event;
         while (window.pollEvent(event)) {
@@ -555,7 +521,8 @@ void test_shit_5()
         window.clear();
 
         auto curr_time = system_clock::now();
-        if (duration_cast<nanoseconds>(curr_time - prev_time).count() >= nanoseconds_in_frame) {
+        auto diff = duration_cast<nanoseconds>(curr_time - prev_time).count();
+        if (diff >= update_amount) {
             prev_time = curr_time;
             for (int i = 0; i < shapes.size(); ++i) {
                 shapes[i].setOrigin(iterations[cur_i][i].location[0], iterations[cur_i][i].location[1]);
@@ -569,8 +536,71 @@ void test_shit_5()
         for (auto shape : shapes) {
             window.draw(shape);
         }
+
         window.display();
     }
+}
+
+void test_shit_5()
+{
+    using std::chrono::system_clock;
+    using std::chrono::time_point;
+    using std::chrono::milliseconds;
+    using std::chrono::nanoseconds;
+    using std::chrono::duration_cast;
+    using std::chrono::duration;
+
+    theta = 0.0;
+//    std::vector<Body> bodies = generate_bodies(50);
+
+    const double sun_x_coord = 0.0;
+    const double earth_x_coord = 1.496e11;
+    const double moon_x_coord = earth_x_coord + 3.844e8;
+
+    const double sun_mass = 1.989e30;
+    const double earth_mass = 5.9720e24;
+    const double moon_mass = 7.34767309e22;
+
+    const double sun_velocity = 0.0;
+    const double earth_velocity = 3e4;
+    const double moon_velocity = earth_velocity + 1.022e3;
+
+    std::vector<Body> bodies = {
+            {0, sun_mass,   {sun_x_coord,   0, 0}, {0, sun_velocity,   0}, {0, 0, 0}},
+            {1, earth_mass, {earth_x_coord, 0, 0}, {0, earth_velocity, 0}, {0, 0, 0}},
+            {2, moon_mass,  {moon_x_coord,  0, 0}, {0, moon_velocity,  0}, {0, 0, 0}},
+    };
+
+    double max_coord = std::accumulate(
+            bodies.begin(),
+            bodies.end(),
+            0.0,
+            [&bodies](double acc, const Body &body) -> double
+            {
+                return std::max({acc,
+                                 std::abs(body.location[0]),
+                                 std::abs(body.location[1]),
+                                 std::abs(body.location[2])});
+            }
+    );
+
+    const double delta_t = 1.0 * 60 * 60 * 24;
+    const double max_time = 60 * 60 * 24 * 30 * 365;
+    std::vector<std::vector<Body>> iterations;
+    BarnesHut bh(bodies, delta_t, max_time);
+
+    time_point<system_clock> prev_time = system_clock::now();
+    bh.simulate([&iterations](std::vector<Body> const &bodies) -> void
+                {
+                    iterations.push_back(std::vector<Body>());
+                    for (Body body : bodies) {
+                        iterations.back().push_back(Body(body));
+                    }
+                });
+    time_point<system_clock> cur_time = system_clock::now();
+
+
+    animate(bodies, max_coord, delta_t, iterations);
 }
 
 void test_shit_6()
@@ -671,7 +701,7 @@ void test_shit_sfml()
 
 int main()
 {
-    test_shit_6();
+    test_shit_5();
 //    test_shit_sfml();
 
 //    Vector3d x = Vector3d::Random(3, 1);
