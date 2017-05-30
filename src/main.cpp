@@ -274,7 +274,7 @@ public:
         double threshold = print_interval * max_time;
         for (double curr_time = 0; curr_time < max_time; curr_time += delta_t) {
             if (curr_time > threshold) {
-                std::cout << curr_time / max_time << "\n";
+                std::cout << threshold / max_time << "\n";
                 threshold += print_interval * max_time;
             }
 //            std::cout << curr_time / max_time << "\n";
@@ -509,7 +509,7 @@ void animate(const std::vector<Body> &bodies, double const max_coord, double con
     time_point<system_clock> prev_time = system_clock::now();
     long nanoseconds_in_frame = (long)(1e9 * delta_t);
     int cur_i = 0;
-    long update_amount = nanoseconds_in_frame / 5000000;
+    long update_amount = nanoseconds_in_frame / 1000000;
     while (window.isOpen()) {
         sf::Event event;
         while (window.pollEvent(event)) {
@@ -518,7 +518,7 @@ void animate(const std::vector<Body> &bodies, double const max_coord, double con
             }
         }
 
-        window.clear();
+        window.clear();50
 
         auto curr_time = system_clock::now();
         auto diff = duration_cast<nanoseconds>(curr_time - prev_time).count();
@@ -541,18 +541,7 @@ void animate(const std::vector<Body> &bodies, double const max_coord, double con
     }
 }
 
-void test_shit_5()
-{
-    using std::chrono::system_clock;
-    using std::chrono::time_point;
-    using std::chrono::milliseconds;
-    using std::chrono::nanoseconds;
-    using std::chrono::duration_cast;
-    using std::chrono::duration;
-
-    theta = 0.0;
-//    std::vector<Body> bodies = generate_bodies(50);
-
+std::vector<Body> get_sun_earth_moon() {
     const double sun_x_coord = 0.0;
     const double earth_x_coord = 1.496e11;
     const double moon_x_coord = earth_x_coord + 3.844e8;
@@ -571,6 +560,21 @@ void test_shit_5()
             {2, moon_mass,  {moon_x_coord,  0, 0}, {0, moon_velocity,  0}, {0, 0, 0}},
     };
 
+    return bodies;
+}
+
+void test_shit_5()
+{
+    using std::chrono::system_clock;
+    using std::chrono::time_point;
+    using std::chrono::milliseconds;
+    using std::chrono::nanoseconds;
+    using std::chrono::duration_cast;
+    using std::chrono::duration;
+
+    theta = 0.5;
+    std::vector<Body> bodies = generate_bodies(500);
+
     double max_coord = std::accumulate(
             bodies.begin(),
             bodies.end(),
@@ -585,11 +589,10 @@ void test_shit_5()
     );
 
     const double delta_t = 1.0 * 60 * 60 * 24;
-    const double max_time = 60 * 60 * 24 * 30 * 365;
+    const double max_time = 60 * 60 * 24 * 365;
     std::vector<std::vector<Body>> iterations;
     BarnesHut bh(bodies, delta_t, max_time);
 
-    time_point<system_clock> prev_time = system_clock::now();
     bh.simulate([&iterations](std::vector<Body> const &bodies) -> void
                 {
                     iterations.push_back(std::vector<Body>());
@@ -597,8 +600,6 @@ void test_shit_5()
                         iterations.back().push_back(Body(body));
                     }
                 });
-    time_point<system_clock> cur_time = system_clock::now();
-
 
     animate(bodies, max_coord, delta_t, iterations);
 }
