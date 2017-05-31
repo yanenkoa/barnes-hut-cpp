@@ -675,16 +675,16 @@ void test_shit_7()
     using std::chrono::duration_cast;
     using std::chrono::duration;
 
-    std::size_t n_bodies_full = 1000;
+    std::size_t n_bodies_full = 2000;
     std::vector<Body> bodies_full = generate_bodies(n_bodies_full);
 
     const double delta_t = 1.0 * 60 * 60 * 12;
     const double max_time = 60 * 60 * 24 * 365;
 
     std::vector<std::size_t> body_counts {
-//            100, 200, 300, 400, 500, 600, 700, 800, 900, 1000,
+            100, 200, 300, 400, 500, 600, 700, 800, 900, 1000,
             1100,
-//            1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000
+            1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000
     };
 
     std::ofstream measurements("/home/alex/CLionProjects/BarnesHut/data/measurements.csv");
