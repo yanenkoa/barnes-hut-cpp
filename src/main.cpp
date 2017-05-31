@@ -310,7 +310,7 @@ void print_shit(const std::shared_ptr<OcNode> &node)
     q.push(node);
     int j = 0;
     while (q.size() != 0) {
-        std::shared_ptr<OcNode> curr_node = q.front();
+        std::shared_ptr<OcNode> curr_node = std::move(q.front());
         q.pop();
         if (curr_node == nullptr) {
             std::cout << 0;
@@ -437,9 +437,9 @@ void test_shit_4()
     };
 
     BarnesHut bh(bodies, 1.0 / 60, 3);
-    bh.simulate([](std::vector<Body> const &bodies) -> void
+    bh.simulate([](std::vector<Body> const &bodies_local) -> void
                 {
-                    for (Body body : bodies) std::cout << body << "\n";
+                    for (Body body : bodies_local) std::cout << body << "\n";
                     std::cout << "iter_end\n";
                 });
 }
@@ -501,7 +501,7 @@ void animate(const std::vector<Body> &bodies, double const max_coord, double con
         Body &body = iterations[0][i];
         sf::CircleShape shape(5);
         shape.setFillColor(colors[i % 7]);
-        shape.setOrigin(body.location[0], body.location[1]);
+        shape.setOrigin((float)body.location[0], (float)body.location[1]);
         shapes.push_back(shape);
     }
 
@@ -518,14 +518,14 @@ void animate(const std::vector<Body> &bodies, double const max_coord, double con
             }
         }
 
-        window.clear();50
+        window.clear();
 
         auto curr_time = system_clock::now();
         auto diff = duration_cast<nanoseconds>(curr_time - prev_time).count();
         if (diff >= update_amount) {
             prev_time = curr_time;
             for (int i = 0; i < shapes.size(); ++i) {
-                shapes[i].setOrigin(iterations[cur_i][i].location[0], iterations[cur_i][i].location[1]);
+                shapes[i].setOrigin((float)iterations[cur_i][i].location[0], (float)iterations[cur_i][i].location[1]);
             }
             ++cur_i;
             if (cur_i >= iterations.size()) {
@@ -573,7 +573,8 @@ void test_shit_5()
     using std::chrono::duration;
 
     theta = 0.5;
-    std::vector<Body> bodies = generate_bodies(500);
+//    std::vector<Body> bodies = generate_bodies(50);
+    std::vector<Body> bodies = get_sun_earth_moon();
 
     double max_coord = std::accumulate(
             bodies.begin(),
@@ -588,15 +589,15 @@ void test_shit_5()
             }
     );
 
-    const double delta_t = 1.0 * 60 * 60 * 24;
+    const double delta_t = 1.0 * 60 * 60 * 12;
     const double max_time = 60 * 60 * 24 * 365;
-    std::vector<std::vector<Body>> iterations;
     BarnesHut bh(bodies, delta_t, max_time);
 
-    bh.simulate([&iterations](std::vector<Body> const &bodies) -> void
+    std::vector<std::vector<Body>> iterations;
+    bh.simulate([&iterations](std::vector<Body> const &bodies_local) -> void
                 {
                     iterations.push_back(std::vector<Body>());
-                    for (Body body : bodies) {
+                    for (Body body : bodies_local) {
                         iterations.back().push_back(Body(body));
                     }
                 });
@@ -616,10 +617,13 @@ void test_shit_6()
     std::size_t n_bodies_full = 1000;
     std::vector<Body> bodies_full = generate_bodies(n_bodies_full);
 
-    const double delta_t = 1.0 / 30;
-    const double max_time = 3;
+    const double delta_t = 1.0 * 60 * 60 * 12;
+    const double max_time = 60 * 60 * 24 * 365;
 
-    std::array<std::size_t, 10> body_counts {100, 200, 300, 400, 500, 600, 700, 800, 900, 1000};
+    std::array<std::size_t, 20> body_counts {
+            100, 200, 300, 400, 500, 600, 700, 800, 900, 1000,
+            1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000
+    };
 
     std::ofstream measurements("/home/alex/CLionProjects/BarnesHut/data/measurements.csv");
 
@@ -662,6 +666,70 @@ void test_shit_6()
     measurements.close();
 }
 
+void test_shit_7()
+{
+    using std::chrono::system_clock;
+    using std::chrono::time_point;
+    using std::chrono::milliseconds;
+    using std::chrono::nanoseconds;
+    using std::chrono::duration_cast;
+    using std::chrono::duration;
+
+    std::size_t n_bodies_full = 1000;
+    std::vector<Body> bodies_full = generate_bodies(n_bodies_full);
+
+    const double delta_t = 1.0 * 60 * 60 * 12;
+    const double max_time = 60 * 60 * 24 * 365;
+
+    std::vector<std::size_t> body_counts {
+//            100, 200, 300, 400, 500, 600, 700, 800, 900, 1000,
+            1100,
+//            1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000
+    };
+
+    std::ofstream measurements("/home/alex/CLionProjects/BarnesHut/data/measurements.csv");
+
+    for (std::size_t n_bodies : body_counts) {
+
+        std::vector<Body> bodies(n_bodies);
+        for (std::size_t i = 0; i < n_bodies; ++i) {
+            bodies[i] = bodies_full[i];
+        }
+
+        measurements << n_bodies;
+
+        for (double theta_local : {0.0, 0.5}) {
+            theta = theta_local;
+
+            std::stringstream name_ss;
+
+            BarnesHut bh(bodies, delta_t, max_time);
+            std::vector<std::vector<Body>> iterations;
+            iterations.reserve((std::size_t)(max_time / delta_t));
+
+            time_point <system_clock> before = system_clock::now();
+            bh.simulate([&iterations](std::vector<Body> const &bodies_local) -> void
+                        {
+                            iterations.push_back(std::vector<Body>());
+                            iterations.back().reserve(bodies_local.size());
+                            for (Body body : bodies_local) {
+                                iterations.back().push_back(Body(body));
+                            }
+                        });
+            time_point <system_clock> after = system_clock::now();
+
+            double seconds = ((double)duration_cast<milliseconds>(after - before).count()) / 1000;
+            measurements << "," << seconds;
+        }
+
+        std::cout << n_bodies << " bodies complete\n";
+        measurements << "\n";
+    }
+
+    measurements.close();
+}
+
+
 void test_shit_sfml()
 {
     using std::chrono::system_clock;
@@ -702,7 +770,9 @@ void test_shit_sfml()
 
 int main()
 {
-    test_shit_5();
+//    test_shit_5();
+//    test_shit_6();
+    test_shit_7();
 //    test_shit_sfml();
 
 //    Vector3d x = Vector3d::Random(3, 1);
