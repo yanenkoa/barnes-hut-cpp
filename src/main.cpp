@@ -9,7 +9,7 @@
 #include <chrono>
 #include <thread>
 #include <fstream>
-#include <cmath>
+#include <mutex>
 
 using namespace Eigen;
 
@@ -45,7 +45,7 @@ double theta = 0.5;
 class OcNode
 {
 private:
-    Vector3d get_child_lower_vertice(std::size_t child_index)
+    Vector3d get_child_lower_vertice(std::size_t child_index) const
     {
         Vector3d result = {0, 0, 0};
         if (child_index == 0 || child_index == 3 || child_index == 4 || child_index == 7) {
@@ -66,7 +66,7 @@ private:
         return result;
     }
 
-    Vector3d get_child_upper_vertice(std::size_t child_index)
+    Vector3d get_child_upper_vertice(std::size_t child_index) const
     {
         Vector3d result = {0, 0, 0};
         if (child_index == 0 || child_index == 3 || child_index == 4 || child_index == 7) {
@@ -87,7 +87,7 @@ private:
         return result;
     }
 
-    std::size_t get_child_index(const Vector3d &point)
+    std::size_t get_child_index(const Vector3d &point) const
     {
         if (point[0] < centerpoint[0]) {
             if (point[1] < centerpoint[1]) {
@@ -120,7 +120,7 @@ private:
         }
     }
 
-    Vector3d get_force(const Body &body)
+    Vector3d get_force(const Body &body) const
     {
         Vector3d diff_vector = center_of_mass.location - body.location;
         double dist = diff_vector.norm();
@@ -135,8 +135,9 @@ private:
     static constexpr double eps = std::numeric_limits<double>::epsilon();
     static constexpr double G = 6.67408e-11;
 
-    NodeType type = EMPTY_EXTERNAL;
+    NodeType type;
     Body center_of_mass;
+    std::mutex insertion_mutex;
 
     friend int main();
 
@@ -152,20 +153,22 @@ public:
     const Vector3d centerpoint;
 
     OcNode(
-            const Vector3d &lower_vertice_,
-            const Vector3d &upper_vertice_
+            const Vector3d &lower_vertice,
+            const Vector3d &upper_vertice
     )
-            : lower_vertice(lower_vertice_), upper_vertice(upper_vertice_)
-            , centerpoint((lower_vertice_ + upper_vertice_) / 2)
+            : lower_vertice(lower_vertice), upper_vertice(upper_vertice)
+            , centerpoint((lower_vertice + upper_vertice) / 2)
             , center_of_mass({-1, 0, centerpoint})
-    {
-    }
+            , type(EMPTY_EXTERNAL)
+            , insertion_mutex()
+    {}
 
     void insert_point(const Body &body)
     {
+        insertion_mutex.lock();
+
         if (type == NONEMPTY_EXTERNAL) {
             type = INTERNAL;
-            std::size_t i = get_child_index(center_of_mass.location);
             std::size_t curr_body_child_index = get_child_index(center_of_mass.location);
             children[curr_body_child_index].reset(new OcNode(
                     get_child_lower_vertice(curr_body_child_index),
@@ -178,10 +181,12 @@ public:
         Vector3d point_prev = center_of_mass.location;
         double mass_new = mass_prev + body.mass;
         Vector3d point_new = (mass_prev * point_prev + body.mass * body.location) / mass_new;
+
         center_of_mass = {body.id, mass_new, point_new};
 
         if (type == EMPTY_EXTERNAL) {
             type = NONEMPTY_EXTERNAL;
+            insertion_mutex.unlock();
             return;
         }
 
@@ -192,10 +197,11 @@ public:
                     get_child_upper_vertice(child_index)
             ));
         }
+        insertion_mutex.unlock();
         children[child_index]->insert_point(body);
     }
 
-    Vector3d calculate_force(const Body &body)
+    Vector3d calculate_force(const Body &body) const
     {
         switch (type) {
             case EMPTY_EXTERNAL: {
@@ -369,9 +375,31 @@ void test_shit()
 
     double cross_coef = 2;
 
-    for (int i = 0; i < norm_shifts.size(); ++i) {
-        node->insert_point({i, 1, Vector3d({0.7, 0.7, 0.7}) + cross_coef * norm_shifts[i]});
+    const std::size_t N_THREADS = 2;
+    std::size_t norm_shifts_portion = norm_shifts.size() / N_THREADS;
+    std::vector<std::thread> threads;
+    for (std::size_t i = 0; i < N_THREADS; ++i) {
+        std::size_t l = i * norm_shifts_portion;
+        std::size_t r = std::min((i + 1) * norm_shifts_portion, norm_shifts.size());
+        threads.push_back(
+                std::thread(
+                        [l, r, cross_coef, &norm_shifts, &node]() -> void
+                        {
+                            for (std::size_t j = l; j < r; ++j) {
+                                node->insert_point({j, 1, Vector3d({0.7, 0.7, 0.7}) + cross_coef * norm_shifts[j]});
+                            }
+                        }
+                )
+        );
     }
+
+    for (auto &thread : threads) {
+        thread.join();
+    }
+
+//    for (int i = 0; i < norm_shifts.size(); ++i) {
+//        node->insert_point({i, 1, Vector3d({0.7, 0.7, 0.7}) + cross_coef * norm_shifts[i]});
+//    }
     node->insert_point({8, 1, {0.2, 0.2, 0.2}});
 
     std::cout << OcNode::G << "\n";
@@ -384,9 +412,9 @@ void test_shit()
                     (cross_coef * norm_shifts[j] + Vector3d(1, 1, 1)) / 2 + cross_coef * norm_shifts[i]
             ) == j);
         }
-
-        std::cout << node->get_child_lower_vertice(i).format(CommaInitFmt) << " "
-                  << node->get_child_upper_vertice(i).format(CommaInitFmt) << "\n";
+//
+//        std::cout << node->get_child_lower_vertice(i).format(CommaInitFmt) << " "
+//                  << node->get_child_upper_vertice(i).format(CommaInitFmt) << "\n";
     }
 
     print_shit(node);
@@ -770,9 +798,10 @@ void test_shit_sfml()
 
 int main()
 {
+    test_shit();
 //    test_shit_5();
 //    test_shit_6();
-    test_shit_7();
+//    test_shit_7();
 //    test_shit_sfml();
 
 //    Vector3d x = Vector3d::Random(3, 1);
