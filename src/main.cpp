@@ -18,6 +18,8 @@ IOFormat PrettyFmt(StreamPrecision, DontAlignCols, ", ", ", ", "", "", "[", "]")
 typedef Matrix<long double, 1, 3> Vector3ld;
 typedef long double ldouble;
 
+const std::size_t N_THREADS = 1;
+
 bool ldouble_equal(ldouble a, ldouble b)
 {
     ldouble max_a_b = std::max(std::abs(a), std::abs(b));
@@ -206,6 +208,7 @@ public:
 
     void insert_point(const Body &body)
     {
+        std::cout << "inserting\n";
         insertion_mutex.lock();
 
         if (type == NONEMPTY_EXTERNAL) {
@@ -302,6 +305,62 @@ private:
         return result;
     }
 
+    void insert_points(OcNode &root) const
+    {
+        std::size_t bodies_portion = bodies.size() / N_THREADS;
+        std::vector<std::thread> threads;
+        for (std::size_t i = 0; i < N_THREADS; ++i) {
+            std::size_t l = i * bodies_portion;
+            std::size_t r = std::min((i + 1) * bodies_portion, bodies.size());
+            if (r != bodies.size() && bodies.size() - r < N_THREADS) {
+                r = bodies.size();
+            }
+
+            threads.push_back(
+                    std::thread(
+                            [l, r, this, &root]() -> void
+                            {
+                                for (std::size_t j = l; j < r; ++j) {
+                                    root.insert_point(this->bodies[j]);
+                                }
+                            }
+                    )
+            );
+        }
+        for (auto &thread : threads) {
+            thread.join();
+        }
+    }
+
+    void update_points(OcNode &root)
+    {
+        std::size_t bodies_portion = bodies.size() / N_THREADS;
+        std::vector<std::thread> threads;
+        for (std::size_t i = 0; i < N_THREADS; ++i) {
+            std::size_t l = i * bodies_portion;
+            std::size_t r = std::min((i + 1) * bodies_portion, bodies.size());
+            if (r != bodies.size() && bodies.size() - r < N_THREADS) {
+                r = bodies.size();
+            }
+            threads.push_back(
+                    std::thread(
+                            [l, r, this, &root]() -> void
+                            {
+                                for (std::size_t j = l; j < r; ++j) {
+                                    Vector3ld force = root.calculate_force(this->bodies[j]);
+                                    this->bodies[j].acceleration = force / this->bodies[j].mass;
+                                    this->bodies[j].velocity += delta_t * this->bodies[j].acceleration;
+                                    this->bodies[j].location += delta_t * this->bodies[j].velocity;
+                                }
+                            }
+                    )
+            );
+        }
+        for (auto &thread : threads) {
+            thread.join();
+        }
+    }
+
     friend void test_shit_6();
     friend void test_shit_parallel();
 
@@ -320,7 +379,6 @@ public:
                 std::cout << threshold / max_time << "\n";
                 threshold += print_interval * max_time;
             }
-//            std::cout << curr_time / max_time << "\n";
             auto lower = get_lower_vertice();
             auto upper = get_upper_vertice();
             auto diff = upper - lower;
@@ -329,17 +387,8 @@ public:
 
             OcNode root(actual_lower, actual_upper);
 
-            for (auto &body : bodies) {
-                root.insert_point(body);
-            }
-
-            for (auto &body : bodies) {
-                Vector3ld force = root.calculate_force(body);
-                body.acceleration = force / body.mass;
-                body.velocity += delta_t * body.acceleration;
-                body.location += delta_t * body.velocity;
-            }
-
+            insert_points(root);
+            update_points(root);
             consume(bodies);
         }
     }
@@ -909,13 +958,5 @@ void test_shit_parallel()
 
 int main()
 {
-//    test_shit();
-//    test_shit_parallel();
-//    test_shit_5();
-//    test_shit_6();
-//    test_shit_7();
-//    test_shit_sfml();
-
-//    Vector3ld x = Vector3ld::Random(3, 1);
-//    std::cout << 1000 * x << "\n";
+    test_shit_5();
 }
