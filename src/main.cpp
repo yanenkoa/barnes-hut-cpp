@@ -15,24 +15,64 @@ using namespace Eigen;
 
 IOFormat PrettyFmt(StreamPrecision, DontAlignCols, ", ", ", ", "", "", "[", "]");
 
+typedef Matrix<long double, 1, 3> Vector3ld;
+typedef long double ldouble;
+
+bool ldouble_equal(ldouble a, ldouble b)
+{
+    ldouble max_a_b = std::max(std::abs(a), std::abs(b));
+    if (std::abs(a - b) > std::max(std::numeric_limits<ldouble>::epsilon(),
+                                   std::numeric_limits<ldouble>::epsilon() * max_a_b * 1000)) {
+        return false;
+    }
+    return true;
+}
+
+bool vector_equal(const Vector3ld &v1, const Vector3ld &v2)
+{
+    return ldouble_equal(v1[0], v2[0]) && ldouble_equal(v1[1], v2[1]) && ldouble_equal(v1[2], v2[2]);
+}
+
 struct Body
 {
-    int id;
-    double mass;
-    Vector3d location;
-    Vector3d velocity;
-    Vector3d acceleration;
+    long id;
+    ldouble mass;
+    Vector3ld location;
+    Vector3ld velocity;
+    Vector3ld acceleration;
 };
 
 std::ostream &operator<<(std::ostream &os, const Body &body)
 {
     os << "{ id = " << body.id
        << ", mass = " << body.mass
-       << ", point = " << body.location.format(PrettyFmt)
+       << ", location = " << body.location.format(PrettyFmt)
        << ", velocity = " << body.velocity.format(PrettyFmt)
        << ", acceleration = " << body.acceleration.format(PrettyFmt)
        << " }";
     return os;
+}
+
+bool operator==(const Body &body1, const Body &body2)
+{
+    if (!ldouble_equal(body1.mass, body2.mass)) {
+        return false;
+    }
+    if (!vector_equal(body1.location, body2.location)) {
+        return false;
+    }
+    if (!vector_equal(body1.velocity, body2.velocity)) {
+        return false;
+    }
+    if (!vector_equal(body1.acceleration, body2.acceleration)) {
+        return false;
+    }
+    return true;
+}
+
+bool operator!=(const Body &body1, const Body &body2)
+{
+    return !(body1 == body2);
 }
 
 enum NodeType
@@ -40,14 +80,14 @@ enum NodeType
     EMPTY_EXTERNAL, NONEMPTY_EXTERNAL, INTERNAL
 };
 
-double theta = 0.5;
+ldouble theta = 0.5;
 
 class OcNode
 {
 private:
-    Vector3d get_child_lower_vertice(std::size_t child_index) const
+    Vector3ld get_child_lower_vertice(std::size_t child_index) const
     {
-        Vector3d result = {0, 0, 0};
+        Vector3ld result = {0, 0, 0};
         if (child_index == 0 || child_index == 3 || child_index == 4 || child_index == 7) {
             result[0] = lower_vertice[0];
         } else {
@@ -66,9 +106,9 @@ private:
         return result;
     }
 
-    Vector3d get_child_upper_vertice(std::size_t child_index) const
+    Vector3ld get_child_upper_vertice(std::size_t child_index) const
     {
-        Vector3d result = {0, 0, 0};
+        Vector3ld result = {0, 0, 0};
         if (child_index == 0 || child_index == 3 || child_index == 4 || child_index == 7) {
             result[0] = (upper_vertice[0] + lower_vertice[0]) / 2;
         } else {
@@ -87,7 +127,7 @@ private:
         return result;
     }
 
-    std::size_t get_child_index(const Vector3d &point) const
+    std::size_t get_child_index(const Vector3ld &point) const
     {
         if (point[0] < centerpoint[0]) {
             if (point[1] < centerpoint[1]) {
@@ -120,45 +160,46 @@ private:
         }
     }
 
-    Vector3d get_force(const Body &body) const
+    Vector3ld get_force(const Body &body) const
     {
-        Vector3d diff_vector = center_of_mass.location - body.location;
-        double dist = diff_vector.norm();
+        Vector3ld diff_vector = center_of_mass.location - body.location;
+        ldouble dist = diff_vector.norm();
         if (type == NONEMPTY_EXTERNAL && center_of_mass.id == body.id) {
             return {0, 0, 0};
         }
-        double force_value = G * center_of_mass.mass * body.mass / (dist * dist);
-        Vector3d result = force_value * diff_vector.normalized();
+        ldouble force_value = G * center_of_mass.mass * body.mass / (dist * dist);
+        Vector3ld result = force_value * diff_vector.normalized();
         return result;
     }
 
-    static constexpr double eps = std::numeric_limits<double>::epsilon();
-    static constexpr double G = 6.67408e-11;
+    static constexpr ldouble eps = std::numeric_limits<ldouble>::epsilon();
+    static constexpr ldouble G = 6.67408e-11;
 
     NodeType type;
     Body center_of_mass;
     std::mutex insertion_mutex;
+    std::array<std::shared_ptr<OcNode>, 8> children{
+            nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr
+    };
 
     friend int main();
 
     friend void test_shit();
-
     friend void print_shit(const std::shared_ptr<OcNode> &);
+    friend void test_shit_parallel();
+    friend bool trees_are_equal(const std::shared_ptr<OcNode> &, const std::shared_ptr<OcNode> &);
 
 public:
-    std::array<std::shared_ptr<OcNode>, 8> children{
-            nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr
-    };
-    const Vector3d lower_vertice, upper_vertice;
-    const Vector3d centerpoint;
+    const Vector3ld lower_vertice, upper_vertice;
+    const Vector3ld centerpoint;
 
     OcNode(
-            const Vector3d &lower_vertice,
-            const Vector3d &upper_vertice
+            const Vector3ld &lower_vertice,
+            const Vector3ld &upper_vertice
     )
             : lower_vertice(lower_vertice), upper_vertice(upper_vertice)
             , centerpoint((lower_vertice + upper_vertice) / 2)
-            , center_of_mass({-1, 0, centerpoint})
+            , center_of_mass({-1, 0, centerpoint, Vector3ld::Zero(3), Vector3ld::Zero(3)})
             , type(EMPTY_EXTERNAL)
             , insertion_mutex()
     {}
@@ -177,12 +218,12 @@ public:
             children[curr_body_child_index]->insert_point(center_of_mass);
         }
 
-        double mass_prev = center_of_mass.mass;
-        Vector3d point_prev = center_of_mass.location;
-        double mass_new = mass_prev + body.mass;
-        Vector3d point_new = (mass_prev * point_prev + body.mass * body.location) / mass_new;
+        ldouble mass_prev = center_of_mass.mass;
+        Vector3ld point_prev = center_of_mass.location;
+        ldouble mass_new = mass_prev + body.mass;
+        Vector3ld point_new = (mass_prev * point_prev + body.mass * body.location) / mass_new;
 
-        center_of_mass = {body.id, mass_new, point_new};
+        center_of_mass = {body.id, mass_new, point_new, Vector3ld::Zero(3), Vector3ld::Zero(3)};
 
         if (type == EMPTY_EXTERNAL) {
             type = NONEMPTY_EXTERNAL;
@@ -201,7 +242,7 @@ public:
         children[child_index]->insert_point(body);
     }
 
-    Vector3d calculate_force(const Body &body) const
+    Vector3ld calculate_force(const Body &body) const
     {
         switch (type) {
             case EMPTY_EXTERNAL: {
@@ -211,12 +252,12 @@ public:
                 return get_force(body);
             }
             case INTERNAL: {
-                double s = upper_vertice[0] - lower_vertice[0];
-                double d = (center_of_mass.location - body.location).norm();
+                ldouble s = upper_vertice[0] - lower_vertice[0];
+                ldouble d = (center_of_mass.location - body.location).norm();
                 if (s / d < theta) {
                     return get_force(body);
                 } else {
-                    Vector3d result(0, 0, 0);
+                    Vector3ld result(0, 0, 0);
                     for (auto child : children) {
                         if (child != nullptr) {
                             result += child->calculate_force(body);
@@ -236,12 +277,12 @@ class BarnesHut
 {
 private:
     std::vector<Body> &bodies;
-    const double delta_t;
-    const double max_time;
+    const ldouble delta_t;
+    const ldouble max_time;
 
-    Vector3d get_lower_vertice()
+    Vector3ld get_lower_vertice() const
     {
-        Vector3d result;
+        Vector3ld result;
         for (auto body : bodies) {
             result[0] = result[0] < body.location[0] ? result[0] : body.location[0];
             result[1] = result[1] < body.location[1] ? result[1] : body.location[1];
@@ -250,9 +291,9 @@ private:
         return result;
     }
 
-    Vector3d get_upper_vertice()
+    Vector3ld get_upper_vertice() const
     {
-        Vector3d result;
+        Vector3ld result;
         for (auto body : bodies) {
             result[0] = result[0] > body.location[0] ? result[0] : body.location[0];
             result[1] = result[1] > body.location[1] ? result[1] : body.location[1];
@@ -261,24 +302,20 @@ private:
         return result;
     }
 
-    void simulate_one_step()
-    {
-
-    }
-
     friend void test_shit_6();
+    friend void test_shit_parallel();
 
 public:
-    BarnesHut(std::vector<Body> &bodies_, double delta_t_, double max_time_)
+    BarnesHut(std::vector<Body> &bodies_, ldouble delta_t_, ldouble max_time_)
             : bodies(bodies_), delta_t(delta_t_), max_time(max_time_)
     {}
 
     void simulate(std::function<void(const std::vector<Body>&)> consume)
     {
         IOFormat MyFmt(StreamPrecision, DontAlignCols, ",", ", ", "", "", "[", "]");
-        const double print_interval = 0.05;
-        double threshold = print_interval * max_time;
-        for (double curr_time = 0; curr_time < max_time; curr_time += delta_t) {
+        const ldouble print_interval = 0.05;
+        ldouble threshold = print_interval * max_time;
+        for (ldouble curr_time = 0; curr_time < max_time; curr_time += delta_t) {
             if (curr_time > threshold) {
                 std::cout << threshold / max_time << "\n";
                 threshold += print_interval * max_time;
@@ -297,7 +334,7 @@ public:
             }
 
             for (auto &body : bodies) {
-                Vector3d force = root.calculate_force(body);
+                Vector3ld force = root.calculate_force(body);
                 body.acceleration = force / body.mass;
                 body.velocity += delta_t * body.acceleration;
                 body.location += delta_t * body.velocity;
@@ -356,13 +393,38 @@ void print_shit(const std::shared_ptr<OcNode> &node)
     }
 }
 
+bool trees_are_equal(const std::shared_ptr<OcNode> &tree1, const std::shared_ptr<OcNode> &tree2)
+{
+    if (tree1->center_of_mass != tree2->center_of_mass) {
+        std:: cout << tree1->center_of_mass << "\n" << tree2->center_of_mass << "\n";
+        return false;
+    }
+    if (tree1->type != tree2->type) {
+        return false;
+    }
+    for (std::size_t i = 0; i < tree1->children.size(); ++i) {
+        if (tree1->children[i] == nullptr && tree2->children[i] != nullptr) {
+            return false;
+        }
+        if (tree1->children[i] != nullptr && tree2->children[i] == nullptr) {
+            return false;
+        }
+        if (tree1->children[i] != nullptr && tree2->children[i] != nullptr) {
+            if (!trees_are_equal(tree1->children[i], tree2->children[i])) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 void test_shit()
 {
-    std::cout << std::numeric_limits<double>::max() << " " << std::numeric_limits<double>::min() << "\n";
+    std::cout << std::numeric_limits<ldouble>::max() << " " << std::numeric_limits<ldouble>::min() << "\n";
 
     std::shared_ptr<OcNode> node(new OcNode({0, 0, 0}, {4, 4, 4}));
 
-    std::vector<Vector3d> norm_shifts{
+    std::vector<Vector3ld> norm_shifts{
             {0, 0, 0},
             {1, 0, 0},
             {1, 1, 0},
@@ -373,9 +435,9 @@ void test_shit()
             {0, 1, 1},
     };
 
-    double cross_coef = 2;
+    ldouble cross_coef = 2;
 
-    const std::size_t N_THREADS = 2;
+    const std::size_t N_THREADS = 4;
     std::size_t norm_shifts_portion = norm_shifts.size() / N_THREADS;
     std::vector<std::thread> threads;
     for (std::size_t i = 0; i < N_THREADS; ++i) {
@@ -386,7 +448,7 @@ void test_shit()
                         [l, r, cross_coef, &norm_shifts, &node]() -> void
                         {
                             for (std::size_t j = l; j < r; ++j) {
-                                node->insert_point({j, 1, Vector3d({0.7, 0.7, 0.7}) + cross_coef * norm_shifts[j]});
+                                node->insert_point({(long)j, 1, Vector3ld({0.7, 0.7, 0.7}) + cross_coef * norm_shifts[j]});
                             }
                         }
                 )
@@ -398,7 +460,7 @@ void test_shit()
     }
 
 //    for (int i = 0; i < norm_shifts.size(); ++i) {
-//        node->insert_point({i, 1, Vector3d({0.7, 0.7, 0.7}) + cross_coef * norm_shifts[i]});
+//        node->insert_point({i, 1, Vector3ld({0.7, 0.7, 0.7}) + cross_coef * norm_shifts[i]});
 //    }
     node->insert_point({8, 1, {0.2, 0.2, 0.2}});
 
@@ -409,7 +471,7 @@ void test_shit()
     for (std::size_t i = 0; i < 8; ++i) {
         for (std::size_t j = 0; j < 8; ++j) {
             assert(node->children[i]->get_child_index(
-                    (cross_coef * norm_shifts[j] + Vector3d(1, 1, 1)) / 2 + cross_coef * norm_shifts[i]
+                    (cross_coef * norm_shifts[j] + Vector3ld(1, 1, 1)) / 2 + cross_coef * norm_shifts[i]
             ) == j);
         }
 //
@@ -474,13 +536,13 @@ void test_shit_4()
 
 std::vector<Body> generate_bodies(std::size_t n_bodies, bool two_d = true)
 {
-    const double mass_lower = 1e22, mass_upper = 1e30;
-    const double location_abs_lower = 1e9, location_abs_upper = 1e11;
-    const double velocity_abs_lower = 1e3, velocity_abs_upper = 1e4;
+    const ldouble mass_lower = 1e22, mass_upper = 1e30;
+    const ldouble location_abs_lower = 1e9, location_abs_upper = 1e11;
+    const ldouble velocity_abs_lower = 1e3, velocity_abs_upper = 1e4;
 
-    std::uniform_real_distribution<double> mass_distr(mass_lower, mass_upper);
-    std::uniform_real_distribution<double> location_abs_distr(location_abs_lower, location_abs_upper);
-    std::uniform_real_distribution<double> velocity_abs_distr(velocity_abs_lower, velocity_abs_upper);
+    std::uniform_real_distribution<ldouble> mass_distr(mass_lower, mass_upper);
+    std::uniform_real_distribution<ldouble> location_abs_distr(location_abs_lower, location_abs_upper);
+    std::uniform_real_distribution<ldouble> velocity_abs_distr(velocity_abs_lower, velocity_abs_upper);
 
     long seed = std::chrono::system_clock::now().time_since_epoch().count();
 //    long seed = 1488;
@@ -490,8 +552,8 @@ std::vector<Body> generate_bodies(std::size_t n_bodies, bool two_d = true)
     for (int i = 0; i < n_bodies; ++i) {
         bodies[i].id = i;
         bodies[i].mass = mass_distr(generator);
-        bodies[i].location = location_abs_distr(generator) * Vector3d::Random(3, 1);
-        bodies[i].velocity = velocity_abs_distr(generator) * Vector3d::Random(3, 1);
+        bodies[i].location = location_abs_distr(generator) * Vector3ld::Random(3, 1);
+        bodies[i].velocity = velocity_abs_distr(generator) * Vector3ld::Random(3, 1);
         if (two_d) {
             bodies[i].location[2] = 0;
             bodies[i].velocity[2] = 0;
@@ -501,7 +563,7 @@ std::vector<Body> generate_bodies(std::size_t n_bodies, bool two_d = true)
     return bodies;
 }
 
-void animate(const std::vector<Body> &bodies, double const max_coord, double const delta_t,
+void animate(const std::vector<Body> &bodies, ldouble const max_coord, ldouble const delta_t,
              std::vector<std::vector<Body>> &iterations)
 {
     using std::chrono::system_clock;
@@ -515,7 +577,7 @@ void animate(const std::vector<Body> &bodies, double const max_coord, double con
     for (auto &iteration : iterations) {
         for (auto &body : iteration) {
             body.location *= width / 2 / max_coord * 0.7;
-            body.location -= Vector3d(width / 2, width / 2, 0);
+            body.location -= Vector3ld(width / 2, width / 2, 0);
         }
     }
 
@@ -570,17 +632,17 @@ void animate(const std::vector<Body> &bodies, double const max_coord, double con
 }
 
 std::vector<Body> get_sun_earth_moon() {
-    const double sun_x_coord = 0.0;
-    const double earth_x_coord = 1.496e11;
-    const double moon_x_coord = earth_x_coord + 3.844e8;
+    const ldouble sun_x_coord = 0.0;
+    const ldouble earth_x_coord = 1.496e11;
+    const ldouble moon_x_coord = earth_x_coord + 3.844e8;
 
-    const double sun_mass = 1.989e30;
-    const double earth_mass = 5.9720e24;
-    const double moon_mass = 7.34767309e22;
+    const ldouble sun_mass = 1.989e30;
+    const ldouble earth_mass = 5.9720e24;
+    const ldouble moon_mass = 7.34767309e22;
 
-    const double sun_velocity = 0.0;
-    const double earth_velocity = 3e4;
-    const double moon_velocity = earth_velocity + 1.022e3;
+    const ldouble sun_velocity = 0.0;
+    const ldouble earth_velocity = 3e4;
+    const ldouble moon_velocity = earth_velocity + 1.022e3;
 
     std::vector<Body> bodies = {
             {0, sun_mass,   {sun_x_coord,   0, 0}, {0, sun_velocity,   0}, {0, 0, 0}},
@@ -604,11 +666,11 @@ void test_shit_5()
 //    std::vector<Body> bodies = generate_bodies(50);
     std::vector<Body> bodies = get_sun_earth_moon();
 
-    double max_coord = std::accumulate(
+    ldouble max_coord = std::accumulate(
             bodies.begin(),
             bodies.end(),
             0.0,
-            [&bodies](double acc, const Body &body) -> double
+            [&bodies](ldouble acc, const Body &body) -> ldouble
             {
                 return std::max({acc,
                                  std::abs(body.location[0]),
@@ -617,8 +679,8 @@ void test_shit_5()
             }
     );
 
-    const double delta_t = 1.0 * 60 * 60 * 12;
-    const double max_time = 60 * 60 * 24 * 365;
+    const ldouble delta_t = 1.0 * 60 * 60 * 12;
+    const ldouble max_time = 60 * 60 * 24 * 365;
     BarnesHut bh(bodies, delta_t, max_time);
 
     std::vector<std::vector<Body>> iterations;
@@ -645,8 +707,8 @@ void test_shit_6()
     std::size_t n_bodies_full = 1000;
     std::vector<Body> bodies_full = generate_bodies(n_bodies_full);
 
-    const double delta_t = 1.0 * 60 * 60 * 12;
-    const double max_time = 60 * 60 * 24 * 365;
+    const ldouble delta_t = 1.0 * 60 * 60 * 12;
+    const ldouble max_time = 60 * 60 * 24 * 365;
 
     std::array<std::size_t, 20> body_counts {
             100, 200, 300, 400, 500, 600, 700, 800, 900, 1000,
@@ -664,7 +726,7 @@ void test_shit_6()
 
         measurements << n_bodies;
 
-        for (double theta_local : {0.0, 0.5}) {
+        for (ldouble theta_local : {0.0, 0.5}) {
             theta = theta_local;
 
             std::stringstream name_ss;
@@ -684,7 +746,7 @@ void test_shit_6()
             time_point <system_clock> after = system_clock::now();
             outp.close();
 
-            double seconds = ((double)duration_cast<milliseconds>(after - before).count()) / 1000;
+            ldouble seconds = ((ldouble)duration_cast<milliseconds>(after - before).count()) / 1000;
             measurements << "," << seconds;
         }
 
@@ -706,8 +768,8 @@ void test_shit_7()
     std::size_t n_bodies_full = 2000;
     std::vector<Body> bodies_full = generate_bodies(n_bodies_full);
 
-    const double delta_t = 1.0 * 60 * 60 * 12;
-    const double max_time = 60 * 60 * 24 * 365;
+    const ldouble delta_t = 1.0 * 60 * 60 * 12;
+    const ldouble max_time = 60 * 60 * 24 * 365;
 
     std::vector<std::size_t> body_counts {
             100, 200, 300, 400, 500, 600, 700, 800, 900, 1000,
@@ -726,7 +788,7 @@ void test_shit_7()
 
         measurements << n_bodies;
 
-        for (double theta_local : {0.0, 0.5}) {
+        for (ldouble theta_local : {0.0, 0.5}) {
             theta = theta_local;
 
             std::stringstream name_ss;
@@ -746,7 +808,7 @@ void test_shit_7()
                         });
             time_point <system_clock> after = system_clock::now();
 
-            double seconds = ((double)duration_cast<milliseconds>(after - before).count()) / 1000;
+            ldouble seconds = ((ldouble)duration_cast<milliseconds>(after - before).count()) / 1000;
             measurements << "," << seconds;
         }
 
@@ -756,7 +818,6 @@ void test_shit_7()
 
     measurements.close();
 }
-
 
 void test_shit_sfml()
 {
@@ -796,14 +857,65 @@ void test_shit_sfml()
     }
 }
 
+void test_shit_parallel()
+{
+    std::vector<Body> bodies = generate_bodies(1000000);
+
+    Vector3ld lower_vertice;
+    for (auto &body : bodies) {
+        lower_vertice[0] = lower_vertice[0] < body.location[0] ? lower_vertice[0] : body.location[0];
+        lower_vertice[1] = lower_vertice[1] < body.location[1] ? lower_vertice[1] : body.location[1];
+        lower_vertice[2] = lower_vertice[2] < body.location[2] ? lower_vertice[2] : body.location[2];
+    }
+
+    Vector3ld upper_vertice;
+    for (auto &body : bodies) {
+        upper_vertice[0] = upper_vertice[0] > body.location[0] ? upper_vertice[0] : body.location[0];
+        upper_vertice[1] = upper_vertice[1] > body.location[1] ? upper_vertice[1] : body.location[1];
+        upper_vertice[2] = upper_vertice[2] > body.location[2] ? upper_vertice[2] : body.location[2];
+    }
+
+    std::shared_ptr<OcNode> parallel_node(new OcNode(lower_vertice, upper_vertice));
+
+    const std::size_t N_THREADS = 4;
+    std::size_t bodies_portion = bodies.size() / N_THREADS;
+    std::vector<std::thread> threads;
+    for (std::size_t i = 0; i < N_THREADS; ++i) {
+        std::size_t l = i * bodies_portion;
+        std::size_t r = std::min((i + 1) * bodies_portion, bodies.size());
+        threads.push_back(
+                std::thread(
+                        [l, r, &bodies, &parallel_node]() -> void
+                        {
+                            for (std::size_t j = l; j < r; ++j) {
+                                parallel_node->insert_point(bodies[j]);
+                            }
+                        }
+                )
+        );
+    }
+
+    for (auto &thread : threads) {
+        thread.join();
+    }
+
+    std::shared_ptr<OcNode> sequential_node(new OcNode(lower_vertice, upper_vertice));
+    for (Body &body : bodies) {
+        sequential_node->insert_point(body);
+    }
+
+    std::cout << (trees_are_equal(parallel_node, sequential_node) ? "true" : "false") << "\n";
+}
+
 int main()
 {
-    test_shit();
+//    test_shit();
+//    test_shit_parallel();
 //    test_shit_5();
 //    test_shit_6();
 //    test_shit_7();
 //    test_shit_sfml();
 
-//    Vector3d x = Vector3d::Random(3, 1);
+//    Vector3ld x = Vector3ld::Random(3, 1);
 //    std::cout << 1000 * x << "\n";
 }
