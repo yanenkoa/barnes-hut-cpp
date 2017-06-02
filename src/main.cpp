@@ -15,16 +15,14 @@ using namespace Eigen;
 
 IOFormat PrettyFmt(StreamPrecision, DontAlignCols, ", ", ", ", "", "", "[", "]");
 
-const std::size_t N_THREADS = 1;
+std::size_t n_threads = 4;
+double theta = 0.5;
 
 bool double_equal(double a, double b)
 {
     double max_a_b = std::max(std::abs(a), std::abs(b));
-    if (std::abs(a - b) > std::max(std::numeric_limits<double>::epsilon(),
-                                   std::numeric_limits<double>::epsilon() * max_a_b * 1000)) {
-        return false;
-    }
-    return true;
+    return std::abs(a - b) > std::max(std::numeric_limits<double>::epsilon(),
+                                      std::numeric_limits<double>::epsilon() * max_a_b * 1000) ? false : true;
 }
 
 bool vector_equal(const Vector3d &v1, const Vector3d &v2)
@@ -78,8 +76,6 @@ enum NodeType
 {
     EMPTY_EXTERNAL, NONEMPTY_EXTERNAL, INTERNAL
 };
-
-double theta = 0.5;
 
 class OcNode
 {
@@ -272,10 +268,33 @@ public:
     }
 };
 
+std::vector<std::size_t> get_boundaries(std::size_t size, std::size_t n_threads)
+{
+    std::vector<std::size_t> result;
+    result.reserve(n_threads + 1);
+
+    if (size <= n_threads) {
+        for (std::size_t i = 0; i < size + 1; ++i) {
+            result.push_back(i);
+        }
+        for (std::size_t i = size + 1; i < n_threads + 1; ++i) {
+            result.push_back(size);
+        }
+    } else {
+        std::size_t step = size / n_threads;
+        for (std::size_t i = 0; i < n_threads + 1; ++i) {
+            result.push_back(i * step);
+        }
+        result[n_threads] = size;
+    }
+
+    return result;
+}
+
 class BarnesHut
 {
 private:
-    std::vector<Body> &bodies;
+    std::vector<Body> bodies;
     const double delta_t;
     const double max_time;
 
@@ -320,15 +339,12 @@ private:
 
     void insert_points(OcNode &root) const
     {
-        std::size_t bodies_portion = bodies.size() / N_THREADS;
+        std::size_t bodies_portion = bodies.size() / n_threads;
         std::vector<std::thread> threads;
-        for (std::size_t i = 0; i < N_THREADS; ++i) {
-            std::size_t l = i * bodies_portion;
-            std::size_t r = std::min((i + 1) * bodies_portion, bodies.size());
-//            if (r != bodies.size() && bodies.size() - r < N_THREADS) {
-//                r = bodies.size();
-//            }
-
+        std::vector<std::size_t> boundaries = get_boundaries(bodies.size(), n_threads);
+        for (std::size_t i = 0; i < n_threads; ++i) {
+            std::size_t l = boundaries[i];
+            std::size_t r = boundaries[i + 1];
             threads.push_back(
                     std::thread(
                             [l, r, this, &root]() -> void
@@ -347,14 +363,12 @@ private:
 
     void update_points(OcNode &root)
     {
-        std::size_t bodies_portion = bodies.size() / N_THREADS;
+        std::size_t bodies_portion = bodies.size() / n_threads;
         std::vector<std::thread> threads;
-        for (std::size_t i = 0; i < N_THREADS; ++i) {
-            std::size_t l = i * bodies_portion;
-            std::size_t r = std::min((i + 1) * bodies_portion, bodies.size());
-//            if (r != bodies.size() && bodies.size() - r < N_THREADS) {
-//                r = bodies.size();
-//            }
+        std::vector<std::size_t> boundaries = get_boundaries(bodies.size(), n_threads);
+        for (std::size_t i = 0; i < n_threads; ++i) {
+            std::size_t l = boundaries[i];
+            std::size_t r = boundaries[i + 1];
             threads.push_back(
                     std::thread(
                             [l, r, this, &root]() -> void
@@ -378,11 +392,15 @@ private:
     friend void test_shit_parallel();
 
 public:
-    BarnesHut(std::vector<Body> &bodies_, double delta_t_, double max_time_)
-            : bodies(bodies_), delta_t(delta_t_), max_time(max_time_)
-    {}
+    BarnesHut(const std::vector<Body> &bodies, double delta_t, double max_time)
+            : bodies(bodies.size()), delta_t(delta_t), max_time(max_time)
+    {
+        for (std::size_t i = 0; i < this->bodies.size(); ++i) {
+            this->bodies[i] = bodies[i];
+        }
+    }
 
-    void simulate(std::function<void(const std::vector<Body>&)> consume)
+    void simulate(const std::function<void(const std::vector<Body>&)> &consume)
     {
         IOFormat MyFmt(StreamPrecision, DontAlignCols, ",", ", ", "", "", "[", "]");
         const double print_interval = 0.05;
@@ -626,8 +644,7 @@ std::vector<Body> generate_bodies(std::size_t n_bodies, bool two_d = true)
     return bodies;
 }
 
-void animate(const std::vector<Body> &bodies, double const delta_t,
-             std::vector<std::vector<Body>> &iterations)
+void animate(const std::vector<Body> &bodies, double const delta_t, std::vector<std::vector<Body>> &iterations)
 {
     using std::chrono::system_clock;
     using std::chrono::time_point;
@@ -708,7 +725,7 @@ void animate(const std::vector<Body> &bodies, double const delta_t,
     }
 }
 
-std::vector<Body> get_sun_earth_moon() {
+std::vector<Body> get_sun_earth_moon_mercury() {
     const double sun_x_coord = 0.0;
     const double earth_x_coord = 1.496e11;
     const double moon_x_coord = earth_x_coord + 3.844e8;
@@ -745,7 +762,7 @@ void test_shit_5()
 
     theta = 0.5;
     std::vector<Body> bodies = generate_bodies(50);
-//    std::vector<Body> bodies = get_sun_earth_moon();
+//    std::vector<Body> bodies = get_sun_earth_moon_mercury();
 
     const double delta_t = 1.0 * 60 * 60 * 12;
     const double max_time = 60 * 60 * 24 * 365;
@@ -841,8 +858,7 @@ void test_shit_7()
     const double max_time = 60 * 60 * 24 * 365;
 
     std::vector<std::size_t> body_counts {
-            100, 200, 300, 400, 500, 600, 700, 800, 900, 1000,
-            1100,
+            100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100,
             1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000
     };
 
@@ -865,6 +881,68 @@ void test_shit_7()
             BarnesHut bh(bodies, delta_t, max_time);
             std::vector<std::vector<Body>> iterations;
             iterations.reserve((std::size_t)(max_time / delta_t));
+
+            time_point <system_clock> before = system_clock::now();
+            bh.simulate([&iterations](std::vector<Body> const &bodies_local) -> void
+                        {
+                            iterations.push_back(std::vector<Body>());
+                            iterations.back().reserve(bodies_local.size());
+                            for (Body body : bodies_local) {
+                                iterations.back().push_back(Body(body));
+                            }
+                        });
+            time_point <system_clock> after = system_clock::now();
+
+            double seconds = ((double)duration_cast<milliseconds>(after - before).count()) / 1000;
+            measurements << "," << seconds;
+        }
+
+        std::cout << n_bodies << " bodies complete\n";
+        measurements << "\n";
+    }
+
+    measurements.close();
+}
+
+void test_shit_8()
+{
+    using std::chrono::system_clock;
+    using std::chrono::time_point;
+    using std::chrono::milliseconds;
+    using std::chrono::nanoseconds;
+    using std::chrono::duration_cast;
+    using std::chrono::duration;
+
+    std::size_t n_bodies_full = 2000;
+    std::vector<Body> bodies_full = generate_bodies(n_bodies_full);
+
+    const double delta_t = 1.0 * 60 * 60 * 12;
+    const double max_time = 60 * 60 * 24 * 365;
+
+    std::vector<std::size_t> body_counts {
+            100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100,
+            1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000
+    };
+
+    std::ofstream measurements("/home/alex/CLionProjects/BarnesHut/data/measurements_parallel.csv");
+
+    for (std::size_t n_bodies : body_counts) {
+
+        std::vector<Body> bodies(n_bodies);
+        for (std::size_t i = 0; i < n_bodies; ++i) {
+            bodies[i] = bodies_full[i];
+        }
+
+        measurements << n_bodies;
+
+        for (int n_threads_local : {3, 4}) {
+            n_threads = (std::size_t)n_threads_local;
+
+            std::stringstream name_ss;
+
+            BarnesHut bh(bodies, delta_t, max_time);
+            std::vector<std::vector<Body>> iterations;
+            iterations.reserve((std::size_t)(max_time / delta_t) + 1);
 
             time_point <system_clock> before = system_clock::now();
             bh.simulate([&iterations](std::vector<Body> const &bodies_local) -> void
@@ -978,5 +1056,9 @@ void test_shit_parallel()
 
 int main()
 {
-    test_shit_5();
+    test_shit_8();
+//    n_threads = 3;
+//    std::vector<std::size_t> a = get_boundaries(100, n_threads);
+//    for (int i = 0; i < n_threads + 1; ++i) std::cout << a[i] << " ";
+//    std::cout << "\n";
 }
