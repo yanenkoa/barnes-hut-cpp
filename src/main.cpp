@@ -193,7 +193,7 @@ public:
     )
             : lower_vertice(lower_vertice), upper_vertice(upper_vertice)
             , centerpoint((lower_vertice + upper_vertice) / 2)
-            , center_of_mass({-1, 0, centerpoint})
+            , center_of_mass({-1, 0, centerpoint, Vector3d::Zero(3), Vector3d::Zero(3)})
     {
         omp_init_lock(&insertion_lock);
     }
@@ -324,7 +324,7 @@ public:
         double threshold = print_interval * max_time;
         for (double curr_time = 0; curr_time < max_time; curr_time += delta_t) {
             if (curr_time > threshold) {
-                std::cout << threshold / max_time << "\n";
+//                std::cout << threshold / max_time << "\n";
                 threshold += print_interval * max_time;
             }
             Vector3d mean = get_mean();
@@ -344,9 +344,15 @@ public:
             #pragma omp parallel for num_threads(n_threads)
             for (std::size_t i = 0; i < bodies.size(); ++i) {
                 Vector3d force = root.calculate_force(bodies[i]);
+//                std::cout << force.format(PrettyFmt) << "\n";
                 bodies[i].acceleration = force / bodies[i].mass;
                 bodies[i].velocity += delta_t * bodies[i].acceleration;
                 bodies[i].location += delta_t * bodies[i].velocity;
+                std::stringstream ss;
+                ss << bodies[i];
+                if (ss.str().find("nan") != std::string::npos) {
+                    std::cout << "nan found " << force.format(PrettyFmt) << "\n";
+                }
             }
 
             consume(bodies);
@@ -809,6 +815,12 @@ void test_shit_7()
     measurements.close();
 }
 
+struct Measurement
+{
+    std::size_t n_bodies;
+    std::vector<double> times;
+};
+
 void test_shit_8()
 {
     using std::chrono::system_clock;
@@ -825,32 +837,28 @@ void test_shit_8()
     const double max_time = 60 * 60 * 24 * 365;
 
     std::vector<std::size_t> body_counts {
-            100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100,
+            100,
+            200, 300,
+            400, 500, 600, 700, 800, 900, 1000, 1100,
             1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000
     };
 
-    std::ofstream measurements("/home/alex/CLionProjects/BarnesHut/data/measurements_parallel.csv");
+    std::vector<Measurement> measurements;
 
     for (std::size_t n_bodies : body_counts) {
-
-        std::vector<Body> bodies(n_bodies);
-        for (std::size_t i = 0; i < n_bodies; ++i) {
-            bodies[i] = bodies_full[i];
-        }
-
-        measurements << n_bodies;
-
+        measurements.push_back({n_bodies, {}});
+//        std::cout << n_bodies;
         for (int n_threads_local : {1, 2, 3, 4}) {
-            n_threads = (std::size_t)n_threads_local;
 
-            std::stringstream name_ss;
+            std::vector<Body> bodies = generate_bodies(n_bodies);
+            n_threads = (std::size_t)n_threads_local;
 
             BarnesHut bh(bodies, delta_t, max_time);
             std::vector<std::vector<Body>> iterations;
             iterations.reserve((std::size_t)(max_time / delta_t) + 1);
 
             time_point <system_clock> before = system_clock::now();
-            bh.simulate([&iterations](std::vector<Body> const &bodies_local) -> void
+            bh.simulate([&iterations](const std::vector<Body> &bodies_local) -> void
                         {
                             iterations.push_back(std::vector<Body>());
                             iterations.back().reserve(bodies_local.size());
@@ -861,15 +869,35 @@ void test_shit_8()
             time_point <system_clock> after = system_clock::now();
 
             double seconds = ((double)duration_cast<milliseconds>(after - before).count()) / 1000;
-            measurements << "," << seconds;
-            std::cout << n_threads_local << " complete\n";
+//            measurements << "," << seconds;
+//            std::cout << "," << seconds;
+            measurements.back().times.push_back(seconds);
+//            std::cout << n_threads_local << " complete\n";
         }
 
-        std::cout << n_bodies << " bodies complete\n";
-        measurements << "\n";
+//        std::cout << n_bodies << " bodies complete\n";
+//        measurements << "\n";
+//        std::cout << "\n";
     }
 
-    measurements.close();
+//    std::ofstream measurements_out("/home/alex/CLionProjects/BarnesHut/data/measurements_parallel.csv");
+//    for (Measurement measurement : measurements) {
+//        measurements_out << measurement.n_bodies;
+//        for (double time : measurement.times) {
+//            measurements_out << "," << time;
+//        }
+//        measurements_out << "\n";
+//    }
+
+//    measurements_out.close();
+
+    for (Measurement measurement : measurements) {
+        std::cout << measurement.n_bodies;
+        for (double time : measurement.times) {
+            std::cout << "," << time;
+        }
+        std::cout << "\n";
+    }
 }
 
 void test_shit_sfml()
@@ -945,6 +973,5 @@ void test_shit_parallel()
 
 int main()
 {
-    n_threads = 4;
-    test_shit_5();
+    test_shit_8();
 }
