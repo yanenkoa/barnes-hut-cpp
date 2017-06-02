@@ -325,18 +325,7 @@ private:
         }
         return mean + Vector3d(max_coord, max_coord, max_coord);
     }
-
-    Vector3d get_upper_vertice() const
-    {
-        Vector3d result;
-        for (auto body : bodies) {
-            result[0] = result[0] > body.location[0] ? result[0] : body.location[0];
-            result[1] = result[1] > body.location[1] ? result[1] : body.location[1];
-            result[2] = result[2] > body.location[2] ? result[2] : body.location[2];
-        }
-        return result;
-    }
-
+    
     void insert_points(OcNode &root) const
     {
         std::size_t bodies_portion = bodies.size() / n_threads;
