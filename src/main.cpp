@@ -45,7 +45,7 @@ double theta = 0.5;
 class OcNode
 {
 private:
-    Vector3d get_child_lower_vertice(std::size_t child_index)
+    Vector3d get_child_lower_vertice(std::size_t child_index) const
     {
         Vector3d result = {0, 0, 0};
         if (child_index == 0 || child_index == 3 || child_index == 4 || child_index == 7) {
@@ -66,7 +66,7 @@ private:
         return result;
     }
 
-    Vector3d get_child_upper_vertice(std::size_t child_index)
+    Vector3d get_child_upper_vertice(std::size_t child_index) const
     {
         Vector3d result = {0, 0, 0};
         if (child_index == 0 || child_index == 3 || child_index == 4 || child_index == 7) {
@@ -87,7 +87,7 @@ private:
         return result;
     }
 
-    std::size_t get_child_index(const Vector3d &point)
+    std::size_t get_child_index(const Vector3d &point) const
     {
         if (point[0] < centerpoint[0]) {
             if (point[1] < centerpoint[1]) {
@@ -120,7 +120,7 @@ private:
         }
     }
 
-    Vector3d get_force(const Body &body)
+    Vector3d get_force(const Body &body) const
     {
         Vector3d diff_vector = center_of_mass.location - body.location;
         double dist = diff_vector.norm();
@@ -165,7 +165,6 @@ public:
     {
         if (type == NONEMPTY_EXTERNAL) {
             type = INTERNAL;
-            std::size_t i = get_child_index(center_of_mass.location);
             std::size_t curr_body_child_index = get_child_index(center_of_mass.location);
             children[curr_body_child_index].reset(new OcNode(
                     get_child_lower_vertice(curr_body_child_index),
@@ -177,8 +176,9 @@ public:
         double mass_prev = center_of_mass.mass;
         Vector3d point_prev = center_of_mass.location;
         double mass_new = mass_prev + body.mass;
-        Vector3d point_new = (mass_prev * point_prev + body.mass * body.location) / mass_new;
-        center_of_mass = {body.id, mass_new, point_new};
+        Vector3d location_new = (mass_prev * point_prev + body.mass * body.location) / mass_new;
+
+        center_of_mass = {body.id, mass_new, location_new, Vector3d::Zero(3), Vector3d::Zero(3)};
 
         if (type == EMPTY_EXTERNAL) {
             type = NONEMPTY_EXTERNAL;
@@ -195,7 +195,7 @@ public:
         children[child_index]->insert_point(body);
     }
 
-    Vector3d calculate_force(const Body &body)
+    Vector3d calculate_force(const Body &body) const
     {
         switch (type) {
             case EMPTY_EXTERNAL: {
@@ -229,45 +229,50 @@ public:
 class BarnesHut
 {
 private:
-    std::vector<Body> &bodies;
+    std::vector<Body> bodies;
     const double delta_t;
     const double max_time;
 
-    Vector3d get_lower_vertice()
-    {
+    Vector3d get_mean() const {
         Vector3d result;
-        for (auto body : bodies) {
-            result[0] = result[0] < body.location[0] ? result[0] : body.location[0];
-            result[1] = result[1] < body.location[1] ? result[1] : body.location[1];
-            result[2] = result[2] < body.location[2] ? result[2] : body.location[2];
+        for (auto &body : bodies) {
+            result += body.location / bodies.size();
         }
         return result;
     }
 
-    Vector3d get_upper_vertice()
+    Vector3d get_lower_vertice(const Vector3d &mean) const
     {
-        Vector3d result;
+        double min_coord = std::numeric_limits<double>::infinity();
         for (auto body : bodies) {
-            result[0] = result[0] > body.location[0] ? result[0] : body.location[0];
-            result[1] = result[1] > body.location[1] ? result[1] : body.location[1];
-            result[2] = result[2] > body.location[2] ? result[2] : body.location[2];
+            Vector3d from_mean = body.location - mean;
+            min_coord = std::min({min_coord, from_mean[0], from_mean[1], from_mean[2]});
         }
-        return result;
+        return mean + Vector3d(min_coord, min_coord, min_coord);
     }
 
-    void simulate_one_step()
+    Vector3d get_upper_vertice(const Vector3d &mean) const
     {
-
+        double max_coord = -std::numeric_limits<double>::infinity();
+        for (auto body : bodies) {
+            Vector3d from_mean = body.location - mean;
+            max_coord = std::max({max_coord, from_mean[0], from_mean[1], from_mean[2]});
+        }
+        return mean + Vector3d(max_coord, max_coord, max_coord);
     }
 
     friend void test_shit_6();
 
 public:
-    BarnesHut(std::vector<Body> &bodies_, double delta_t_, double max_time_)
-            : bodies(bodies_), delta_t(delta_t_), max_time(max_time_)
-    {}
+    BarnesHut(const std::vector<Body> &bodies, double delta_t, double max_time)
+            : bodies(bodies.size()), delta_t(delta_t), max_time(max_time)
+    {
+        for (std::size_t i = 0; i < this->bodies.size(); ++i) {
+            this->bodies[i] = bodies[i];
+        }
+    }
 
-    void simulate(std::function<void(const std::vector<Body>&)> consume)
+    void simulate(const std::function<void(const std::vector<Body>&)> &consume)
     {
         IOFormat MyFmt(StreamPrecision, DontAlignCols, ",", ", ", "", "", "[", "]");
         const double print_interval = 0.05;
@@ -277,12 +282,12 @@ public:
                 std::cout << threshold / max_time << "\n";
                 threshold += print_interval * max_time;
             }
-//            std::cout << curr_time / max_time << "\n";
-            auto lower = get_lower_vertice();
-            auto upper = get_upper_vertice();
-            auto diff = upper - lower;
-            auto actual_lower = lower - 0.1 * diff;
-            auto actual_upper = upper + 0.1 * diff;
+            Vector3d mean = get_mean();
+            Vector3d lower = get_lower_vertice(mean);
+            Vector3d upper = get_upper_vertice(mean);
+            Vector3d diff = upper - lower;
+            Vector3d actual_lower = lower - 0.1 * diff;
+            Vector3d actual_upper = upper + 0.1 * diff;
 
             OcNode root(actual_lower, actual_upper);
 
@@ -473,8 +478,7 @@ std::vector<Body> generate_bodies(std::size_t n_bodies, bool two_d = true)
     return bodies;
 }
 
-void animate(const std::vector<Body> &bodies, double const max_coord, double const delta_t,
-             std::vector<std::vector<Body>> &iterations)
+void animate(const std::vector<Body> &bodies, double const delta_t, std::vector<std::vector<Body>> &iterations)
 {
     using std::chrono::system_clock;
     using std::chrono::time_point;
@@ -483,10 +487,24 @@ void animate(const std::vector<Body> &bodies, double const max_coord, double con
     using std::chrono::duration_cast;
     using std::chrono::duration;
 
+    double max_coord = std::accumulate(
+            iterations[0].begin(),
+            iterations[0].end(),
+            0.0,
+            [&bodies](double acc, const Body &body) -> double
+            {
+                return std::max({acc,
+                                 std::abs(body.location[0]),
+                                 std::abs(body.location[1]),
+                                 std::abs(body.location[2])});
+            }
+    );
+
+
     unsigned int width = 1000;
     for (auto &iteration : iterations) {
         for (auto &body : iteration) {
-            body.location *= width / 2 / max_coord * 0.7;
+            body.location *= width / 2 / max_coord * 0.2;
             body.location -= Vector3d(width / 2, width / 2, 0);
         }
     }
@@ -541,23 +559,27 @@ void animate(const std::vector<Body> &bodies, double const max_coord, double con
     }
 }
 
-std::vector<Body> get_sun_earth_moon() {
+std::vector<Body> get_sun_earth_moon_mercury() {
     const double sun_x_coord = 0.0;
     const double earth_x_coord = 1.496e11;
     const double moon_x_coord = earth_x_coord + 3.844e8;
+    const double mercury_x_coord = 5.791e10;
 
     const double sun_mass = 1.989e30;
     const double earth_mass = 5.9720e24;
     const double moon_mass = 7.34767309e22;
+    const double mercury_mass = 3.285e23;
 
     const double sun_velocity = 0.0;
     const double earth_velocity = 3e4;
     const double moon_velocity = earth_velocity + 1.022e3;
+    const double mercury_velocity = 4.74e4;
 
     std::vector<Body> bodies = {
-            {0, sun_mass,   {sun_x_coord,   0, 0}, {0, sun_velocity,   0}, {0, 0, 0}},
-            {1, earth_mass, {earth_x_coord, 0, 0}, {0, earth_velocity, 0}, {0, 0, 0}},
-            {2, moon_mass,  {moon_x_coord,  0, 0}, {0, moon_velocity,  0}, {0, 0, 0}},
+            {0, sun_mass,     {sun_x_coord,   0, 0},   {0, sun_velocity,     0}, {0, 0, 0}},
+            {1, earth_mass,   {earth_x_coord, 0, 0},   {0, earth_velocity,   0}, {0, 0, 0}},
+            {2, moon_mass,    {moon_x_coord,  0, 0},   {0, moon_velocity,    0}, {0, 0, 0}},
+            {3, mercury_mass, {mercury_x_coord, 0, 0}, {0, mercury_velocity, 0}, {0, 0, 0}}
     };
 
     return bodies;
@@ -574,20 +596,7 @@ void test_shit_5()
 
     theta = 0.5;
 //    std::vector<Body> bodies = generate_bodies(50);
-    std::vector<Body> bodies = get_sun_earth_moon();
-
-    double max_coord = std::accumulate(
-            bodies.begin(),
-            bodies.end(),
-            0.0,
-            [&bodies](double acc, const Body &body) -> double
-            {
-                return std::max({acc,
-                                 std::abs(body.location[0]),
-                                 std::abs(body.location[1]),
-                                 std::abs(body.location[2])});
-            }
-    );
+    std::vector<Body> bodies = get_sun_earth_moon_mercury();
 
     const double delta_t = 1.0 * 60 * 60 * 12;
     const double max_time = 60 * 60 * 24 * 365;
@@ -602,7 +611,7 @@ void test_shit_5()
                     }
                 });
 
-    animate(bodies, max_coord, delta_t, iterations);
+    animate(bodies, delta_t, iterations);
 }
 
 void test_shit_6()
@@ -682,8 +691,7 @@ void test_shit_7()
     const double max_time = 60 * 60 * 24 * 365;
 
     std::vector<std::size_t> body_counts {
-            100, 200, 300, 400, 500, 600, 700, 800, 900, 1000,
-            1100,
+            100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100,
             1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000
     };
 
@@ -770,9 +778,9 @@ void test_shit_sfml()
 
 int main()
 {
-//    test_shit_5();
+    test_shit_5();
 //    test_shit_6();
-    test_shit_7();
+//    test_shit_7();
 //    test_shit_sfml();
 
 //    Vector3d x = Vector3d::Random(3, 1);
