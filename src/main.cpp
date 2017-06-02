@@ -15,9 +15,24 @@ using namespace Eigen;
 
 IOFormat PrettyFmt(StreamPrecision, DontAlignCols, ", ", ", ", "", "", "[", "]");
 
+std::size_t n_threads = 4;
+double theta = 0.5;
+
+bool double_equal(double a, double b)
+{
+    double max_a_b = std::max(std::abs(a), std::abs(b));
+    return std::abs(a - b) <= std::max(std::numeric_limits<double>::epsilon(),
+                                       std::numeric_limits<double>::epsilon() * max_a_b * 1000);
+}
+
+bool vector_equal(const Vector3d &v1, const Vector3d &v2)
+{
+    return double_equal(v1[0], v2[0]) && double_equal(v1[1], v2[1]) && double_equal(v1[2], v2[2]);
+}
+
 struct Body
 {
-    int id;
+    long id;
     double mass;
     Vector3d location;
     Vector3d velocity;
@@ -28,19 +43,39 @@ std::ostream &operator<<(std::ostream &os, const Body &body)
 {
     os << "{ id = " << body.id
        << ", mass = " << body.mass
-       << ", point = " << body.location.format(PrettyFmt)
+       << ", location = " << body.location.format(PrettyFmt)
        << ", velocity = " << body.velocity.format(PrettyFmt)
        << ", acceleration = " << body.acceleration.format(PrettyFmt)
        << " }";
     return os;
 }
 
+bool operator==(const Body &body1, const Body &body2)
+{
+    if (!double_equal(body1.mass, body2.mass)) {
+        return false;
+    }
+    if (!vector_equal(body1.location, body2.location)) {
+        return false;
+    }
+    if (!vector_equal(body1.velocity, body2.velocity)) {
+        return false;
+    }
+    if (!vector_equal(body1.acceleration, body2.acceleration)) {
+        return false;
+    }
+    return true;
+}
+
+bool operator!=(const Body &body1, const Body &body2)
+{
+    return !(body1 == body2);
+}
+
 enum NodeType
 {
     EMPTY_EXTERNAL, NONEMPTY_EXTERNAL, INTERNAL
 };
-
-double theta = 0.5;
 
 class OcNode
 {
@@ -137,32 +172,40 @@ private:
 
     NodeType type = EMPTY_EXTERNAL;
     Body center_of_mass;
-
-    friend int main();
-
-    friend void test_shit();
-
-    friend void print_shit(const std::shared_ptr<OcNode> &);
-
-public:
+    omp_lock_t insertion_lock;
     std::array<std::shared_ptr<OcNode>, 8> children{
             nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr
     };
+
+    friend int main();
+    friend void test_shit();
+    friend void print_shit(const std::shared_ptr<OcNode> &);
+    friend void test_shit_parallel();
+    friend bool trees_are_equal(const std::shared_ptr<OcNode> &, const std::shared_ptr<OcNode> &);
+
+public:
     const Vector3d lower_vertice, upper_vertice;
     const Vector3d centerpoint;
 
     OcNode(
-            const Vector3d &lower_vertice_,
-            const Vector3d &upper_vertice_
+            const Vector3d &lower_vertice,
+            const Vector3d &upper_vertice
     )
-            : lower_vertice(lower_vertice_), upper_vertice(upper_vertice_)
-            , centerpoint((lower_vertice_ + upper_vertice_) / 2)
+            : lower_vertice(lower_vertice), upper_vertice(upper_vertice)
+            , centerpoint((lower_vertice + upper_vertice) / 2)
             , center_of_mass({-1, 0, centerpoint})
     {
+        omp_init_lock(&insertion_lock);
+    }
+
+    ~OcNode()
+    {
+        omp_destroy_lock(&insertion_lock);
     }
 
     void insert_point(const Body &body)
     {
+        omp_set_lock(&insertion_lock);
         if (type == NONEMPTY_EXTERNAL) {
             type = INTERNAL;
             std::size_t curr_body_child_index = get_child_index(center_of_mass.location);
@@ -182,6 +225,7 @@ public:
 
         if (type == EMPTY_EXTERNAL) {
             type = NONEMPTY_EXTERNAL;
+            omp_unset_lock(&insertion_lock);
             return;
         }
 
@@ -192,6 +236,7 @@ public:
                     get_child_upper_vertice(child_index)
             ));
         }
+        omp_unset_lock(&insertion_lock);
         children[child_index]->insert_point(body);
     }
 
@@ -291,15 +336,17 @@ public:
 
             OcNode root(actual_lower, actual_upper);
 
-            for (auto &body : bodies) {
-                root.insert_point(body);
+            #pragma omp parallel for num_threads(n_threads)
+            for (std::size_t i = 0; i < bodies.size(); ++i) {
+                root.insert_point(bodies[i]);
             }
 
-            for (auto &body : bodies) {
-                Vector3d force = root.calculate_force(body);
-                body.acceleration = force / body.mass;
-                body.velocity += delta_t * body.acceleration;
-                body.location += delta_t * body.velocity;
+            #pragma omp parallel for num_threads(n_threads)
+            for (std::size_t i = 0; i < bodies.size(); ++i) {
+                Vector3d force = root.calculate_force(bodies[i]);
+                bodies[i].acceleration = force / bodies[i].mass;
+                bodies[i].velocity += delta_t * bodies[i].acceleration;
+                bodies[i].location += delta_t * bodies[i].velocity;
             }
 
             consume(bodies);
@@ -353,6 +400,31 @@ void print_shit(const std::shared_ptr<OcNode> &node)
             std::cout << "\n===================================================\n";
         }
     }
+}
+
+bool trees_are_equal(const std::shared_ptr<OcNode> &tree1, const std::shared_ptr<OcNode> &tree2)
+{
+    if (tree1->center_of_mass != tree2->center_of_mass) {
+        std:: cout << tree1->center_of_mass << "\n" << tree2->center_of_mass << "\n";
+        return false;
+    }
+    if (tree1->type != tree2->type) {
+        return false;
+    }
+    for (std::size_t i = 0; i < tree1->children.size(); ++i) {
+        if (tree1->children[i] == nullptr && tree2->children[i] != nullptr) {
+            return false;
+        }
+        if (tree1->children[i] != nullptr && tree2->children[i] == nullptr) {
+            return false;
+        }
+        if (tree1->children[i] != nullptr && tree2->children[i] != nullptr) {
+            if (!trees_are_equal(tree1->children[i], tree2->children[i])) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 void test_shit()
@@ -737,6 +809,68 @@ void test_shit_7()
     measurements.close();
 }
 
+void test_shit_8()
+{
+    using std::chrono::system_clock;
+    using std::chrono::time_point;
+    using std::chrono::milliseconds;
+    using std::chrono::nanoseconds;
+    using std::chrono::duration_cast;
+    using std::chrono::duration;
+
+    std::size_t n_bodies_full = 2000;
+    std::vector<Body> bodies_full = generate_bodies(n_bodies_full);
+
+    const double delta_t = 1.0 * 60 * 60 * 12;
+    const double max_time = 60 * 60 * 24 * 365;
+
+    std::vector<std::size_t> body_counts {
+            100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100,
+            1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000
+    };
+
+    std::ofstream measurements("/home/alex/CLionProjects/BarnesHut/data/measurements_parallel.csv");
+
+    for (std::size_t n_bodies : body_counts) {
+
+        std::vector<Body> bodies(n_bodies);
+        for (std::size_t i = 0; i < n_bodies; ++i) {
+            bodies[i] = bodies_full[i];
+        }
+
+        measurements << n_bodies;
+
+        for (int n_threads_local : {1, 2, 3, 4}) {
+            n_threads = (std::size_t)n_threads_local;
+
+            std::stringstream name_ss;
+
+            BarnesHut bh(bodies, delta_t, max_time);
+            std::vector<std::vector<Body>> iterations;
+            iterations.reserve((std::size_t)(max_time / delta_t) + 1);
+
+            time_point <system_clock> before = system_clock::now();
+            bh.simulate([&iterations](std::vector<Body> const &bodies_local) -> void
+                        {
+                            iterations.push_back(std::vector<Body>());
+                            iterations.back().reserve(bodies_local.size());
+                            for (Body body : bodies_local) {
+                                iterations.back().push_back(Body(body));
+                            }
+                        });
+            time_point <system_clock> after = system_clock::now();
+
+            double seconds = ((double)duration_cast<milliseconds>(after - before).count()) / 1000;
+            measurements << "," << seconds;
+            std::cout << n_threads_local << " complete\n";
+        }
+
+        std::cout << n_bodies << " bodies complete\n";
+        measurements << "\n";
+    }
+
+    measurements.close();
+}
 
 void test_shit_sfml()
 {
@@ -776,13 +910,41 @@ void test_shit_sfml()
     }
 }
 
+void test_shit_parallel()
+{
+    std::vector<Body> bodies = generate_bodies(1000);
+
+    Vector3d lower_vertice;
+    for (auto &body : bodies) {
+        lower_vertice[0] = lower_vertice[0] < body.location[0] ? lower_vertice[0] : body.location[0];
+        lower_vertice[1] = lower_vertice[1] < body.location[1] ? lower_vertice[1] : body.location[1];
+        lower_vertice[2] = lower_vertice[2] < body.location[2] ? lower_vertice[2] : body.location[2];
+    }
+
+    Vector3d upper_vertice;
+    for (auto &body : bodies) {
+        upper_vertice[0] = upper_vertice[0] > body.location[0] ? upper_vertice[0] : body.location[0];
+        upper_vertice[1] = upper_vertice[1] > body.location[1] ? upper_vertice[1] : body.location[1];
+        upper_vertice[2] = upper_vertice[2] > body.location[2] ? upper_vertice[2] : body.location[2];
+    }
+
+    std::shared_ptr<OcNode> parallel_node(new OcNode(lower_vertice, upper_vertice));
+
+    #pragma omp parallel for num_threads(4)
+    for (std::size_t i = 0; i < bodies.size(); ++i) {
+        parallel_node->insert_point(bodies[i]);
+    }
+
+    std::shared_ptr<OcNode> sequential_node(new OcNode(lower_vertice, upper_vertice));
+    for (Body &body : bodies) {
+        sequential_node->insert_point(body);
+    }
+
+    std::cout << (trees_are_equal(parallel_node, sequential_node) ? "true" : "false") << "\n";
+}
+
 int main()
 {
+    n_threads = 4;
     test_shit_5();
-//    test_shit_6();
-//    test_shit_7();
-//    test_shit_sfml();
-
-//    Vector3d x = Vector3d::Random(3, 1);
-//    std::cout << 1000 * x << "\n";
 }
