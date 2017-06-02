@@ -15,33 +15,30 @@ using namespace Eigen;
 
 IOFormat PrettyFmt(StreamPrecision, DontAlignCols, ", ", ", ", "", "", "[", "]");
 
-typedef Matrix<long double, 1, 3> Vector3ld;
-typedef long double ldouble;
-
 const std::size_t N_THREADS = 1;
 
-bool ldouble_equal(ldouble a, ldouble b)
+bool double_equal(double a, double b)
 {
-    ldouble max_a_b = std::max(std::abs(a), std::abs(b));
-    if (std::abs(a - b) > std::max(std::numeric_limits<ldouble>::epsilon(),
-                                   std::numeric_limits<ldouble>::epsilon() * max_a_b * 1000)) {
+    double max_a_b = std::max(std::abs(a), std::abs(b));
+    if (std::abs(a - b) > std::max(std::numeric_limits<double>::epsilon(),
+                                   std::numeric_limits<double>::epsilon() * max_a_b * 1000)) {
         return false;
     }
     return true;
 }
 
-bool vector_equal(const Vector3ld &v1, const Vector3ld &v2)
+bool vector_equal(const Vector3d &v1, const Vector3d &v2)
 {
-    return ldouble_equal(v1[0], v2[0]) && ldouble_equal(v1[1], v2[1]) && ldouble_equal(v1[2], v2[2]);
+    return double_equal(v1[0], v2[0]) && double_equal(v1[1], v2[1]) && double_equal(v1[2], v2[2]);
 }
 
 struct Body
 {
     long id;
-    ldouble mass;
-    Vector3ld location;
-    Vector3ld velocity;
-    Vector3ld acceleration;
+    double mass;
+    Vector3d location;
+    Vector3d velocity;
+    Vector3d acceleration;
 };
 
 std::ostream &operator<<(std::ostream &os, const Body &body)
@@ -57,7 +54,7 @@ std::ostream &operator<<(std::ostream &os, const Body &body)
 
 bool operator==(const Body &body1, const Body &body2)
 {
-    if (!ldouble_equal(body1.mass, body2.mass)) {
+    if (!double_equal(body1.mass, body2.mass)) {
         return false;
     }
     if (!vector_equal(body1.location, body2.location)) {
@@ -82,14 +79,14 @@ enum NodeType
     EMPTY_EXTERNAL, NONEMPTY_EXTERNAL, INTERNAL
 };
 
-ldouble theta = 0.5;
+double theta = 0.5;
 
 class OcNode
 {
 private:
-    Vector3ld get_child_lower_vertice(std::size_t child_index) const
+    Vector3d get_child_lower_vertice(std::size_t child_index) const
     {
-        Vector3ld result = {0, 0, 0};
+        Vector3d result = {0, 0, 0};
         if (child_index == 0 || child_index == 3 || child_index == 4 || child_index == 7) {
             result[0] = lower_vertice[0];
         } else {
@@ -108,9 +105,9 @@ private:
         return result;
     }
 
-    Vector3ld get_child_upper_vertice(std::size_t child_index) const
+    Vector3d get_child_upper_vertice(std::size_t child_index) const
     {
-        Vector3ld result = {0, 0, 0};
+        Vector3d result = {0, 0, 0};
         if (child_index == 0 || child_index == 3 || child_index == 4 || child_index == 7) {
             result[0] = (upper_vertice[0] + lower_vertice[0]) / 2;
         } else {
@@ -129,7 +126,7 @@ private:
         return result;
     }
 
-    std::size_t get_child_index(const Vector3ld &point) const
+    std::size_t get_child_index(const Vector3d &point) const
     {
         if (point[0] < centerpoint[0]) {
             if (point[1] < centerpoint[1]) {
@@ -162,20 +159,20 @@ private:
         }
     }
 
-    Vector3ld get_force(const Body &body) const
+    Vector3d get_force(const Body &body) const
     {
-        Vector3ld diff_vector = center_of_mass.location - body.location;
-        ldouble dist = diff_vector.norm();
+        Vector3d diff_vector = center_of_mass.location - body.location;
+        double dist = diff_vector.norm();
         if (type == NONEMPTY_EXTERNAL && center_of_mass.id == body.id) {
             return {0, 0, 0};
         }
-        ldouble force_value = G * center_of_mass.mass * body.mass / (dist * dist);
-        Vector3ld result = force_value * diff_vector.normalized();
+        double force_value = G * center_of_mass.mass * body.mass / (dist * dist);
+        Vector3d result = force_value * diff_vector.normalized();
         return result;
     }
 
-    static constexpr ldouble eps = std::numeric_limits<ldouble>::epsilon();
-    static constexpr ldouble G = 6.67408e-11;
+    static constexpr double eps = std::numeric_limits<double>::epsilon();
+    static constexpr double G = 6.67408e-11;
 
     NodeType type;
     Body center_of_mass;
@@ -192,23 +189,22 @@ private:
     friend bool trees_are_equal(const std::shared_ptr<OcNode> &, const std::shared_ptr<OcNode> &);
 
 public:
-    const Vector3ld lower_vertice, upper_vertice;
-    const Vector3ld centerpoint;
+    const Vector3d lower_vertice, upper_vertice;
+    const Vector3d centerpoint;
 
     OcNode(
-            const Vector3ld &lower_vertice,
-            const Vector3ld &upper_vertice
+            const Vector3d &lower_vertice,
+            const Vector3d &upper_vertice
     )
             : lower_vertice(lower_vertice), upper_vertice(upper_vertice)
             , centerpoint((lower_vertice + upper_vertice) / 2)
-            , center_of_mass({-1, 0, centerpoint, Vector3ld::Zero(3), Vector3ld::Zero(3)})
+            , center_of_mass({-1, 0, centerpoint, Vector3d::Zero(3), Vector3d::Zero(3)})
             , type(EMPTY_EXTERNAL)
             , insertion_mutex()
     {}
 
     void insert_point(const Body &body)
     {
-        std::cout << "inserting\n";
         insertion_mutex.lock();
 
         if (type == NONEMPTY_EXTERNAL) {
@@ -221,12 +217,12 @@ public:
             children[curr_body_child_index]->insert_point(center_of_mass);
         }
 
-        ldouble mass_prev = center_of_mass.mass;
-        Vector3ld point_prev = center_of_mass.location;
-        ldouble mass_new = mass_prev + body.mass;
-        Vector3ld point_new = (mass_prev * point_prev + body.mass * body.location) / mass_new;
+        double mass_prev = center_of_mass.mass;
+        Vector3d point_prev = center_of_mass.location;
+        double mass_new = mass_prev + body.mass;
+        Vector3d location_new = (mass_prev * point_prev + body.mass * body.location) / mass_new;
 
-        center_of_mass = {body.id, mass_new, point_new, Vector3ld::Zero(3), Vector3ld::Zero(3)};
+        center_of_mass = {body.id, mass_new, location_new, Vector3d::Zero(3), Vector3d::Zero(3)};
 
         if (type == EMPTY_EXTERNAL) {
             type = NONEMPTY_EXTERNAL;
@@ -245,7 +241,7 @@ public:
         children[child_index]->insert_point(body);
     }
 
-    Vector3ld calculate_force(const Body &body) const
+    Vector3d calculate_force(const Body &body) const
     {
         switch (type) {
             case EMPTY_EXTERNAL: {
@@ -255,12 +251,12 @@ public:
                 return get_force(body);
             }
             case INTERNAL: {
-                ldouble s = upper_vertice[0] - lower_vertice[0];
-                ldouble d = (center_of_mass.location - body.location).norm();
+                double s = upper_vertice[0] - lower_vertice[0];
+                double d = (center_of_mass.location - body.location).norm();
                 if (s / d < theta) {
                     return get_force(body);
                 } else {
-                    Vector3ld result(0, 0, 0);
+                    Vector3d result(0, 0, 0);
                     for (auto child : children) {
                         if (child != nullptr) {
                             result += child->calculate_force(body);
@@ -280,23 +276,40 @@ class BarnesHut
 {
 private:
     std::vector<Body> &bodies;
-    const ldouble delta_t;
-    const ldouble max_time;
+    const double delta_t;
+    const double max_time;
 
-    Vector3ld get_lower_vertice() const
-    {
-        Vector3ld result;
-        for (auto body : bodies) {
-            result[0] = result[0] < body.location[0] ? result[0] : body.location[0];
-            result[1] = result[1] < body.location[1] ? result[1] : body.location[1];
-            result[2] = result[2] < body.location[2] ? result[2] : body.location[2];
+    Vector3d get_mean() const {
+        Vector3d result;
+        for (auto &body : bodies) {
+            result += body.location / bodies.size();
         }
         return result;
     }
 
-    Vector3ld get_upper_vertice() const
+    Vector3d get_lower_vertice(const Vector3d &mean) const
     {
-        Vector3ld result;
+        double min_coord = std::numeric_limits<double>::infinity();
+        for (auto body : bodies) {
+            Vector3d from_mean = body.location - mean;
+            min_coord = std::min({min_coord, from_mean[0], from_mean[1], from_mean[2]});
+        }
+        return mean + Vector3d(min_coord, min_coord, min_coord);
+    }
+
+    Vector3d get_upper_vertice(const Vector3d &mean) const
+    {
+        double max_coord = -std::numeric_limits<double>::infinity();
+        for (auto body : bodies) {
+            Vector3d from_mean = body.location - mean;
+            max_coord = std::max({max_coord, from_mean[0], from_mean[1], from_mean[2]});
+        }
+        return mean + Vector3d(max_coord, max_coord, max_coord);
+    }
+
+    Vector3d get_upper_vertice() const
+    {
+        Vector3d result;
         for (auto body : bodies) {
             result[0] = result[0] > body.location[0] ? result[0] : body.location[0];
             result[1] = result[1] > body.location[1] ? result[1] : body.location[1];
@@ -312,9 +325,9 @@ private:
         for (std::size_t i = 0; i < N_THREADS; ++i) {
             std::size_t l = i * bodies_portion;
             std::size_t r = std::min((i + 1) * bodies_portion, bodies.size());
-            if (r != bodies.size() && bodies.size() - r < N_THREADS) {
-                r = bodies.size();
-            }
+//            if (r != bodies.size() && bodies.size() - r < N_THREADS) {
+//                r = bodies.size();
+//            }
 
             threads.push_back(
                     std::thread(
@@ -339,15 +352,15 @@ private:
         for (std::size_t i = 0; i < N_THREADS; ++i) {
             std::size_t l = i * bodies_portion;
             std::size_t r = std::min((i + 1) * bodies_portion, bodies.size());
-            if (r != bodies.size() && bodies.size() - r < N_THREADS) {
-                r = bodies.size();
-            }
+//            if (r != bodies.size() && bodies.size() - r < N_THREADS) {
+//                r = bodies.size();
+//            }
             threads.push_back(
                     std::thread(
                             [l, r, this, &root]() -> void
                             {
                                 for (std::size_t j = l; j < r; ++j) {
-                                    Vector3ld force = root.calculate_force(this->bodies[j]);
+                                    Vector3d force = root.calculate_force(this->bodies[j]);
                                     this->bodies[j].acceleration = force / this->bodies[j].mass;
                                     this->bodies[j].velocity += delta_t * this->bodies[j].acceleration;
                                     this->bodies[j].location += delta_t * this->bodies[j].velocity;
@@ -365,25 +378,26 @@ private:
     friend void test_shit_parallel();
 
 public:
-    BarnesHut(std::vector<Body> &bodies_, ldouble delta_t_, ldouble max_time_)
+    BarnesHut(std::vector<Body> &bodies_, double delta_t_, double max_time_)
             : bodies(bodies_), delta_t(delta_t_), max_time(max_time_)
     {}
 
     void simulate(std::function<void(const std::vector<Body>&)> consume)
     {
         IOFormat MyFmt(StreamPrecision, DontAlignCols, ",", ", ", "", "", "[", "]");
-        const ldouble print_interval = 0.05;
-        ldouble threshold = print_interval * max_time;
-        for (ldouble curr_time = 0; curr_time < max_time; curr_time += delta_t) {
+        const double print_interval = 0.05;
+        double threshold = print_interval * max_time;
+        for (double curr_time = 0; curr_time < max_time; curr_time += delta_t) {
             if (curr_time > threshold) {
                 std::cout << threshold / max_time << "\n";
                 threshold += print_interval * max_time;
             }
-            auto lower = get_lower_vertice();
-            auto upper = get_upper_vertice();
-            auto diff = upper - lower;
-            auto actual_lower = lower - 0.1 * diff;
-            auto actual_upper = upper + 0.1 * diff;
+            Vector3d mean = get_mean();
+            Vector3d lower = get_lower_vertice(mean);
+            Vector3d upper = get_upper_vertice(mean);
+            Vector3d diff = upper - lower;
+            Vector3d actual_lower = lower - 0.1 * diff;
+            Vector3d actual_upper = upper + 0.1 * diff;
 
             OcNode root(actual_lower, actual_upper);
 
@@ -469,11 +483,11 @@ bool trees_are_equal(const std::shared_ptr<OcNode> &tree1, const std::shared_ptr
 
 void test_shit()
 {
-    std::cout << std::numeric_limits<ldouble>::max() << " " << std::numeric_limits<ldouble>::min() << "\n";
+    std::cout << std::numeric_limits<double>::max() << " " << std::numeric_limits<double>::min() << "\n";
 
     std::shared_ptr<OcNode> node(new OcNode({0, 0, 0}, {4, 4, 4}));
 
-    std::vector<Vector3ld> norm_shifts{
+    std::vector<Vector3d> norm_shifts{
             {0, 0, 0},
             {1, 0, 0},
             {1, 1, 0},
@@ -484,7 +498,7 @@ void test_shit()
             {0, 1, 1},
     };
 
-    ldouble cross_coef = 2;
+    double cross_coef = 2;
 
     const std::size_t N_THREADS = 4;
     std::size_t norm_shifts_portion = norm_shifts.size() / N_THREADS;
@@ -497,7 +511,7 @@ void test_shit()
                         [l, r, cross_coef, &norm_shifts, &node]() -> void
                         {
                             for (std::size_t j = l; j < r; ++j) {
-                                node->insert_point({(long)j, 1, Vector3ld({0.7, 0.7, 0.7}) + cross_coef * norm_shifts[j]});
+                                node->insert_point({(long)j, 1, Vector3d({0.7, 0.7, 0.7}) + cross_coef * norm_shifts[j]});
                             }
                         }
                 )
@@ -509,7 +523,7 @@ void test_shit()
     }
 
 //    for (int i = 0; i < norm_shifts.size(); ++i) {
-//        node->insert_point({i, 1, Vector3ld({0.7, 0.7, 0.7}) + cross_coef * norm_shifts[i]});
+//        node->insert_point({i, 1, Vector3d({0.7, 0.7, 0.7}) + cross_coef * norm_shifts[i]});
 //    }
     node->insert_point({8, 1, {0.2, 0.2, 0.2}});
 
@@ -520,7 +534,7 @@ void test_shit()
     for (std::size_t i = 0; i < 8; ++i) {
         for (std::size_t j = 0; j < 8; ++j) {
             assert(node->children[i]->get_child_index(
-                    (cross_coef * norm_shifts[j] + Vector3ld(1, 1, 1)) / 2 + cross_coef * norm_shifts[i]
+                    (cross_coef * norm_shifts[j] + Vector3d(1, 1, 1)) / 2 + cross_coef * norm_shifts[i]
             ) == j);
         }
 //
@@ -585,13 +599,13 @@ void test_shit_4()
 
 std::vector<Body> generate_bodies(std::size_t n_bodies, bool two_d = true)
 {
-    const ldouble mass_lower = 1e22, mass_upper = 1e30;
-    const ldouble location_abs_lower = 1e9, location_abs_upper = 1e11;
-    const ldouble velocity_abs_lower = 1e3, velocity_abs_upper = 1e4;
+    const double mass_lower = 1e22, mass_upper = 1e30;
+    const double location_abs_lower = 1e9, location_abs_upper = 1e11;
+    const double velocity_abs_lower = 1e2, velocity_abs_upper = 1e3;
 
-    std::uniform_real_distribution<ldouble> mass_distr(mass_lower, mass_upper);
-    std::uniform_real_distribution<ldouble> location_abs_distr(location_abs_lower, location_abs_upper);
-    std::uniform_real_distribution<ldouble> velocity_abs_distr(velocity_abs_lower, velocity_abs_upper);
+    std::uniform_real_distribution<double> mass_distr(mass_lower, mass_upper);
+    std::uniform_real_distribution<double> location_abs_distr(location_abs_lower, location_abs_upper);
+    std::uniform_real_distribution<double> velocity_abs_distr(velocity_abs_lower, velocity_abs_upper);
 
     long seed = std::chrono::system_clock::now().time_since_epoch().count();
 //    long seed = 1488;
@@ -601,8 +615,8 @@ std::vector<Body> generate_bodies(std::size_t n_bodies, bool two_d = true)
     for (int i = 0; i < n_bodies; ++i) {
         bodies[i].id = i;
         bodies[i].mass = mass_distr(generator);
-        bodies[i].location = location_abs_distr(generator) * Vector3ld::Random(3, 1);
-        bodies[i].velocity = velocity_abs_distr(generator) * Vector3ld::Random(3, 1);
+        bodies[i].location = location_abs_distr(generator) * Vector3d::Random(3, 1);
+        bodies[i].velocity = velocity_abs_distr(generator) * Vector3d::Random(3, 1);
         if (two_d) {
             bodies[i].location[2] = 0;
             bodies[i].velocity[2] = 0;
@@ -612,7 +626,7 @@ std::vector<Body> generate_bodies(std::size_t n_bodies, bool two_d = true)
     return bodies;
 }
 
-void animate(const std::vector<Body> &bodies, ldouble const max_coord, ldouble const delta_t,
+void animate(const std::vector<Body> &bodies, double const delta_t,
              std::vector<std::vector<Body>> &iterations)
 {
     using std::chrono::system_clock;
@@ -622,11 +636,25 @@ void animate(const std::vector<Body> &bodies, ldouble const max_coord, ldouble c
     using std::chrono::duration_cast;
     using std::chrono::duration;
 
+    double max_coord = std::accumulate(
+            iterations[0].begin(),
+            iterations[0].end(),
+            0.0,
+            [&bodies](double acc, const Body &body) -> double
+            {
+                return std::max({acc,
+                                 std::abs(body.location[0]),
+                                 std::abs(body.location[1]),
+                                 std::abs(body.location[2])});
+            }
+    );
+
+
     unsigned int width = 1000;
     for (auto &iteration : iterations) {
         for (auto &body : iteration) {
-            body.location *= width / 2 / max_coord * 0.7;
-            body.location -= Vector3ld(width / 2, width / 2, 0);
+            body.location *= width / 2 / max_coord * 0.2;
+            body.location -= Vector3d(width / 2, width / 2, 0);
         }
     }
 
@@ -681,22 +709,26 @@ void animate(const std::vector<Body> &bodies, ldouble const max_coord, ldouble c
 }
 
 std::vector<Body> get_sun_earth_moon() {
-    const ldouble sun_x_coord = 0.0;
-    const ldouble earth_x_coord = 1.496e11;
-    const ldouble moon_x_coord = earth_x_coord + 3.844e8;
+    const double sun_x_coord = 0.0;
+    const double earth_x_coord = 1.496e11;
+    const double moon_x_coord = earth_x_coord + 3.844e8;
+    const double mercury_x_coord = 5.791e10;
 
-    const ldouble sun_mass = 1.989e30;
-    const ldouble earth_mass = 5.9720e24;
-    const ldouble moon_mass = 7.34767309e22;
+    const double sun_mass = 1.989e30;
+    const double earth_mass = 5.9720e24;
+    const double moon_mass = 7.34767309e22;
+    const double mercury_mass = 3.285e23;
 
-    const ldouble sun_velocity = 0.0;
-    const ldouble earth_velocity = 3e4;
-    const ldouble moon_velocity = earth_velocity + 1.022e3;
+    const double sun_velocity = 0.0;
+    const double earth_velocity = 3e4;
+    const double moon_velocity = earth_velocity + 1.022e3;
+    const double mercury_velocity = 4.74e4;
 
     std::vector<Body> bodies = {
-            {0, sun_mass,   {sun_x_coord,   0, 0}, {0, sun_velocity,   0}, {0, 0, 0}},
-            {1, earth_mass, {earth_x_coord, 0, 0}, {0, earth_velocity, 0}, {0, 0, 0}},
-            {2, moon_mass,  {moon_x_coord,  0, 0}, {0, moon_velocity,  0}, {0, 0, 0}},
+            {0, sun_mass,     {sun_x_coord,   0, 0},   {0, sun_velocity,     0}, {0, 0, 0}},
+            {1, earth_mass,   {earth_x_coord, 0, 0},   {0, earth_velocity,   0}, {0, 0, 0}},
+            {2, moon_mass,    {moon_x_coord,  0, 0},   {0, moon_velocity,    0}, {0, 0, 0}},
+            {3, mercury_mass, {mercury_x_coord, 0, 0}, {0, mercury_velocity, 0}, {0, 0, 0}}
     };
 
     return bodies;
@@ -712,24 +744,12 @@ void test_shit_5()
     using std::chrono::duration;
 
     theta = 0.5;
-//    std::vector<Body> bodies = generate_bodies(50);
-    std::vector<Body> bodies = get_sun_earth_moon();
+    std::vector<Body> bodies = generate_bodies(50);
+//    std::vector<Body> bodies = get_sun_earth_moon();
 
-    ldouble max_coord = std::accumulate(
-            bodies.begin(),
-            bodies.end(),
-            0.0,
-            [&bodies](ldouble acc, const Body &body) -> ldouble
-            {
-                return std::max({acc,
-                                 std::abs(body.location[0]),
-                                 std::abs(body.location[1]),
-                                 std::abs(body.location[2])});
-            }
-    );
-
-    const ldouble delta_t = 1.0 * 60 * 60 * 12;
-    const ldouble max_time = 60 * 60 * 24 * 365;
+    const double delta_t = 1.0 * 60 * 60 * 12;
+    const double max_time = 60 * 60 * 24 * 365;
+//    const double max_time = delta_t * 2;
     BarnesHut bh(bodies, delta_t, max_time);
 
     std::vector<std::vector<Body>> iterations;
@@ -741,7 +761,7 @@ void test_shit_5()
                     }
                 });
 
-    animate(bodies, max_coord, delta_t, iterations);
+    animate(bodies, delta_t, iterations);
 }
 
 void test_shit_6()
@@ -756,8 +776,8 @@ void test_shit_6()
     std::size_t n_bodies_full = 1000;
     std::vector<Body> bodies_full = generate_bodies(n_bodies_full);
 
-    const ldouble delta_t = 1.0 * 60 * 60 * 12;
-    const ldouble max_time = 60 * 60 * 24 * 365;
+    const double delta_t = 1.0 * 60 * 60 * 12;
+    const double max_time = 60 * 60 * 24 * 365;
 
     std::array<std::size_t, 20> body_counts {
             100, 200, 300, 400, 500, 600, 700, 800, 900, 1000,
@@ -775,7 +795,7 @@ void test_shit_6()
 
         measurements << n_bodies;
 
-        for (ldouble theta_local : {0.0, 0.5}) {
+        for (double theta_local : {0.0, 0.5}) {
             theta = theta_local;
 
             std::stringstream name_ss;
@@ -795,7 +815,7 @@ void test_shit_6()
             time_point <system_clock> after = system_clock::now();
             outp.close();
 
-            ldouble seconds = ((ldouble)duration_cast<milliseconds>(after - before).count()) / 1000;
+            double seconds = ((double)duration_cast<milliseconds>(after - before).count()) / 1000;
             measurements << "," << seconds;
         }
 
@@ -817,8 +837,8 @@ void test_shit_7()
     std::size_t n_bodies_full = 2000;
     std::vector<Body> bodies_full = generate_bodies(n_bodies_full);
 
-    const ldouble delta_t = 1.0 * 60 * 60 * 12;
-    const ldouble max_time = 60 * 60 * 24 * 365;
+    const double delta_t = 1.0 * 60 * 60 * 12;
+    const double max_time = 60 * 60 * 24 * 365;
 
     std::vector<std::size_t> body_counts {
             100, 200, 300, 400, 500, 600, 700, 800, 900, 1000,
@@ -837,7 +857,7 @@ void test_shit_7()
 
         measurements << n_bodies;
 
-        for (ldouble theta_local : {0.0, 0.5}) {
+        for (double theta_local : {0.0, 0.5}) {
             theta = theta_local;
 
             std::stringstream name_ss;
@@ -857,7 +877,7 @@ void test_shit_7()
                         });
             time_point <system_clock> after = system_clock::now();
 
-            ldouble seconds = ((ldouble)duration_cast<milliseconds>(after - before).count()) / 1000;
+            double seconds = ((double)duration_cast<milliseconds>(after - before).count()) / 1000;
             measurements << "," << seconds;
         }
 
@@ -910,14 +930,14 @@ void test_shit_parallel()
 {
     std::vector<Body> bodies = generate_bodies(1000000);
 
-    Vector3ld lower_vertice;
+    Vector3d lower_vertice;
     for (auto &body : bodies) {
         lower_vertice[0] = lower_vertice[0] < body.location[0] ? lower_vertice[0] : body.location[0];
         lower_vertice[1] = lower_vertice[1] < body.location[1] ? lower_vertice[1] : body.location[1];
         lower_vertice[2] = lower_vertice[2] < body.location[2] ? lower_vertice[2] : body.location[2];
     }
 
-    Vector3ld upper_vertice;
+    Vector3d upper_vertice;
     for (auto &body : bodies) {
         upper_vertice[0] = upper_vertice[0] > body.location[0] ? upper_vertice[0] : body.location[0];
         upper_vertice[1] = upper_vertice[1] > body.location[1] ? upper_vertice[1] : body.location[1];
