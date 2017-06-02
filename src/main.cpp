@@ -935,7 +935,7 @@ void test_shit_8()
 
         measurements << n_bodies;
 
-        for (int n_threads_local : {3, 4}) {
+        for (int n_threads_local : {1, 2, 3, 4}) {
             n_threads = (std::size_t)n_threads_local;
 
             std::stringstream name_ss;
@@ -957,6 +957,7 @@ void test_shit_8()
 
             double seconds = ((double)duration_cast<milliseconds>(after - before).count()) / 1000;
             measurements << "," << seconds;
+            std::cout << n_threads_local << " complete\n";
         }
 
         std::cout << n_bodies << " bodies complete\n";
